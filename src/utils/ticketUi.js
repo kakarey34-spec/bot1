@@ -185,15 +185,28 @@ function buildProofReceivedEmbed(guildId, message) {
 
 function buildStaffReviewEmbed(guildId, ticket, proofUrl) {
   const { formatPlanLabel } = require('../constants/plans');
-  const embed = virelloEmbed(guildId, {
-    title: '◆ Payment awaiting review',
-    description: 'A purchase is ready for staff verification.',
-  }).addFields(
+  const fields = [
     { name: 'Buyer', value: `<@${ticket.userId}>`, inline: true },
     { name: 'Plan', value: formatPlanLabel(ticket.planId), inline: true },
     { name: 'Method', value: `\`${ticket.paymentMethod || 'unknown'}\``, inline: true },
-    { name: 'Proof', value: `[View message](${proofUrl})`, inline: true }
-  );
+    { name: 'Proof', value: `[View message](${proofUrl})`, inline: true },
+  ];
+
+  if (ticket.claimedBy) {
+    fields.push({
+      name: 'Claimed by',
+      value: `<@${ticket.claimedBy}>`,
+      inline: true,
+    });
+  }
+
+  const embed = virelloEmbed(guildId, {
+    title: '◆ Payment awaiting review',
+    description: ticket.claimedBy
+      ? 'A staff member is handling this review.'
+      : 'A purchase is ready for staff verification. **Claim** before approving.',
+    fields,
+  });
 
   return withLogoPayload([embed]);
 }

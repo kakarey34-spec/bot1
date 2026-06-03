@@ -185,6 +185,26 @@ module.exports = {
         });
       }
 
+      if (customId.startsWith(`${TICKET_IDS.claim}:`)) {
+        if (!canUse(interaction.member, LEVELS.staff)) {
+          return interaction.reply({
+            content: 'Only staff can claim tickets.',
+            ephemeral: true,
+          });
+        }
+        const channelId = customId.split(':')[1];
+        await interaction.deferReply({ ephemeral: true });
+        const result = await ticketManager.claimTicket(
+          interaction.guild,
+          channelId,
+          interaction.member
+        );
+        if (result.error) {
+          return interaction.editReply({ content: result.error });
+        }
+        return interaction.editReply({ content: 'You claimed this ticket for review.' });
+      }
+
       if (customId.startsWith(`${TICKET_IDS.approve}:`)) {
         if (!canUse(interaction.member, LEVELS.staff)) {
           return interaction.reply({

@@ -13,6 +13,7 @@ const TICKET_IDS = {
   paymentDone: 'ticket_payment_done',
   approve: 'ticket_approve',
   deny: 'ticket_deny',
+  claim: 'ticket_claim',
 };
 
 const PLAN_IDS = {
@@ -81,26 +82,46 @@ function paymentDoneRow() {
   ];
 }
 
-function staffApprovalRow(ticketChannelId) {
-  return [
-    new ActionRowBuilder().addComponents(
+function staffApprovalRow(ticketChannelId, ticket = null) {
+  const buttons = [];
+
+  if (ticket?.claimedBy) {
+    buttons.push(
       new ButtonBuilder()
-        .setCustomId(`${TICKET_IDS.approve}:${ticketChannelId}`)
-        .setLabel('Approve')
-        .setEmoji('✔️')
-        .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId(`${TICKET_IDS.deny}:${ticketChannelId}`)
-        .setLabel('Decline')
-        .setEmoji('✖️')
-        .setStyle(ButtonStyle.Danger),
-      new ButtonBuilder()
-        .setCustomId(TICKET_IDS.close)
-        .setLabel('Close lane')
-        .setEmoji('🔒')
+        .setCustomId(`${TICKET_IDS.claim}:${ticketChannelId}`)
+        .setLabel('Claimed')
         .setStyle(ButtonStyle.Secondary)
-    ),
-  ];
+        .setDisabled(true)
+    );
+  } else {
+    buttons.push(
+      new ButtonBuilder()
+        .setCustomId(`${TICKET_IDS.claim}:${ticketChannelId}`)
+        .setLabel('Claim')
+        .setEmoji('🙋')
+        .setStyle(ButtonStyle.Primary)
+    );
+  }
+
+  buttons.push(
+    new ButtonBuilder()
+      .setCustomId(`${TICKET_IDS.approve}:${ticketChannelId}`)
+      .setLabel('Approve')
+      .setEmoji('✔️')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(`${TICKET_IDS.deny}:${ticketChannelId}`)
+      .setLabel('Decline')
+      .setEmoji('✖️')
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId(TICKET_IDS.close)
+      .setLabel('Close lane')
+      .setEmoji('🔒')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return [new ActionRowBuilder().addComponents(buttons)];
 }
 
 module.exports = {

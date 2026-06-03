@@ -143,6 +143,63 @@ async function revokeLicense(guild, userId, staffId, reason = null) {
   return { ok: true, license };
 }
 
+async function addPurchaserRole(guild, userId, auditReason = 'License granted') {
+  const config = store.getGuild(guild.id);
+  if (!config.roles.purchaserRoleId) return;
+  const member = await guild.members.fetch(userId).catch(() => null);
+  if (!member) return;
+  await member.roles.add(config.roles.purchaserRoleId, auditReason).catch(() => null);
+}
+
+async function grantLicenseToUser(guild, userId, planId, staffId, { notify = true } = {}) {
+  const result = grantLicense(guild.id, userId, planId, {
+    approvedBy: staffId,
+    approvedAt: Date.now(),
+    grantedByStaff: true,
+  });
+  if (result.error) return result;
+
+  await addPurchaserRole(guild, userId, 'License granted by staff');
+  if (notify) {
+    await sendWelcomeDm(guild, userId, result.license, result.plan);
+  }
+  return result;
+}
+
+async function extendLicense(guild, userId, months, staffId) {
+  if (!Number.isInteger(months) || months < 1 || months > 36) {
+    return { error: 'Months must be between 1 and 36.' };
+  }
+
+  const license = getLicense(guild.id, userId);
+  if (!license) {
+    return { error: 'That user has no license record. Use `/license grant` first.' };
+  }
+
+  const now = Date.now();
+  const base = license.expiresAt > now && !license.expired ? license.expiresAt : now;
+  license.expiresAt = addMonthsMs(base, months);
+  license.expired = false;
+  license.extendedBy = staffId;
+  license.extendedAt = now;
+  license.warningsSent = [];
+  store.setLicense(guild.id, userId, license);
+
+  await addPurchaserRole(guild, userId, 'License extended by staff');
+  return { ok: true, license, monthsAdded: months };
+}
+
+function listLicenses(guildId, { activeOnly = true } = {}) {
+  return store
+    .listLicensesForGuild(guildId)
+    .map((entry) => ({
+      ...entry,
+      status: licenseStatus(entry),
+    }))
+    .filter((entry) => (activeOnly ? entry.status.active : true))
+    .sort((a, b) => a.expiresAt - b.expiresAt);
+}
+
 async function removePurchaserRole(guild, userId, auditReason = 'License expired') {
   const config = store.getGuild(guild.id);
   if (!config.roles.purchaserRoleId) return;
@@ -154,11 +211,15 @@ async function removePurchaserRole(guild, userId, auditReason = 'License expired
 module.exports = {
   getLicense,
   grantLicense,
+  grantLicenseToUser,
+  extendLicense,
+  listLicenses,
   markLicenseExpired,
   revokeLicense,
   licenseStatus,
   sendWelcomeDm,
   sendExpiryWarningDm,
   sendExpiredDm,
+  addPurchaserRole,
   removePurchaserRole,
 };

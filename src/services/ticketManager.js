@@ -23,6 +23,7 @@ const ticketLog = require('../utils/ticketLog');
 const { getPlan } = require('../constants/plans');
 
 const { getCategoryById, DEFAULT_CATEGORIES } = require('../utils/ticketPanel');
+const { getPermissionLevel, LEVELS } = require('../utils/permissions');
 
 const STAGES = {
   SELECT_PLAN: 'select_plan',
@@ -207,6 +208,21 @@ function openTicketErrorMessage(channel) {
   };
 }
 
+function isTicketBlacklisted(guildId, userId) {
+  const config = store.getGuild(guildId);
+  return (config.blacklist?.ticketUserIds || []).includes(userId);
+}
+
+function staffCanActOnClaimedTicket(staffMember, ticket) {
+  if (!ticket?.claimedBy) return { ok: true };
+  if (ticket.claimedBy === staffMember.id) return { ok: true };
+  if (getPermissionLevel(staffMember) >= LEVELS.admin) return { ok: true };
+  return {
+    ok: false,
+    error: `This ticket is claimed by <@${ticket.claimedBy}>. Only they or an admin can approve or decline.`,
+  };
+}
+
 function isPaymentCategory(categoryId) {
   return categoryId === 'payments' || DEFAULT_CATEGORIES[categoryId]?.requiresPayment === true;
 }
@@ -272,6 +288,12 @@ async function createTicket(guild, member, categoryId = 'payments') {
     }
 
     if (category.requiresPayment) {
+      if (isTicketBlacklisted(guild.id, member.id)) {
+        return {
+          error:
+            'You are blocked from opening purchase or renewal lanes. Contact staff if you believe this is a mistake.',
+        };
+      }
       const cooldownMsg = checkOpenCooldown(guild.id, member.id);
       if (cooldownMsg) return { error: cooldownMsg };
     }
@@ -413,11 +435,14 @@ async function handleProofMessage(message) {
   const { roleIds: viewerRoleIds } = collectTicketViewers(config);
   const staffPing = viewerRoleIds.map((id) => `<@&${id}>`).join(' ');
 
-  await message.channel.send({
+  const reviewMsg = await message.channel.send({
     content: staffPing || null,
     ...buildStaffReviewEmbed(message.guild.id, ticket, message.url),
-    components: staffApprovalRow(message.channel.id),
+    components: staffApprovalRow(message.channel.id, ticket),
   });
+
+  ticket.reviewMessageId = reviewMsg.id;
+  store.setTicket(message.channel.id, ticket);
 
   return true;
 }
@@ -444,6 +469,9 @@ async function approvePayment(guild, channelId, staffMember) {
   if (ticket.stage !== STAGES.AWAITING_APPROVAL) {
     return { error: 'This ticket is not awaiting approval.' };
   }
+
+  const claimCheck = staffCanActOnClaimedTicket(staffMember, ticket);
+  if (!claimCheck.ok) return { error: claimCheck.error };
 
   const config = store.getGuild(guild.id);
   const member = await guild.members.fetch(ticket.userId).catch(() => null);
@@ -506,6 +534,9 @@ async function denyPayment(guild, channelId, staffMember, reason = null) {
   const ticket = store.getTicket(channelId);
   if (!ticket) return { error: 'Not a valid ticket.' };
 
+  const claimCheck = staffCanActOnClaimedTicket(staffMember, ticket);
+  if (!claimCheck.ok) return { error: claimCheck.error };
+
   const config = store.getGuild(guild.id);
   ticket.stage = STAGES.DENIED;
   ticket.deniedBy = staffMember.id;
@@ -524,6 +555,42 @@ async function denyPayment(guild, channelId, staffMember, reason = null) {
   }
 
   return { ok: true };
+}
+
+async function claimTicket(guild, channelId, staffMember) {
+  const channel = guild.channels.cache.get(channelId);
+  if (!channel) return { error: 'Ticket channel not found.' };
+
+  const ticket = store.getTicket(channelId);
+  if (!ticket) return { error: 'Not a valid ticket.' };
+  if (ticket.stage !== STAGES.AWAITING_APPROVAL) {
+    return { error: 'This ticket is not awaiting approval.' };
+  }
+  if (ticket.claimedBy) {
+    if (ticket.claimedBy === staffMember.id) {
+      return { error: 'You already claimed this ticket.' };
+    }
+    return { error: `Already claimed by <@${ticket.claimedBy}>.` };
+  }
+
+  ticket.claimedBy = staffMember.id;
+  ticket.claimedAt = Date.now();
+  store.setTicket(channelId, ticket);
+
+  if (ticket.reviewMessageId && ticket.proofMessageId) {
+    const reviewMsg = await channel.messages.fetch(ticket.reviewMessageId).catch(() => null);
+    const proofMsg = await channel.messages.fetch(ticket.proofMessageId).catch(() => null);
+    if (reviewMsg && proofMsg) {
+      await reviewMsg
+        .edit({
+          ...buildStaffReviewEmbed(guild.id, ticket, proofMsg.url),
+          components: staffApprovalRow(channelId, ticket),
+        })
+        .catch(() => null);
+    }
+  }
+
+  return { ok: true, ticket };
 }
 
 async function closeTicket(channel, closedBy) {
@@ -647,6 +714,7 @@ module.exports = {
   handleDoneKeyword,
   approvePayment,
   denyPayment,
+  claimTicket,
   closeTicket,
   getTicketStats,
   touchTicketChannelActivity,

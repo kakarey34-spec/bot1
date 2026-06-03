@@ -71,6 +71,9 @@ module.exports = {
     staffRoleIds: [],
     configRoleIds: [],
   },
+  blacklist: {
+    ticketUserIds: [],
+  },
   moderation: {
     muteDurationMinutes: 10,
   },
