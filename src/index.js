@@ -3,6 +3,7 @@ const http = require('http');
 const { Client, GatewayIntentBits, Partials } = require('discord.js');
 const { loadEvents } = require('./handlers/eventHandler');
 const { createSlashCommandHandler } = require('./handlers/commandHandler');
+const store = require('./config/store');
 
 const client = new Client({
   intents: [
@@ -39,4 +40,10 @@ http
     console.log(`Health server listening on port ${port}`);
   });
 
-client.login(token);
+store
+  .init()
+  .then(() => client.login(token))
+  .catch((err) => {
+    console.error('Failed to start:', err);
+    process.exit(1);
+  });

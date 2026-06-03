@@ -52,10 +52,43 @@ function deepMerge(target, source) {
 
 class ConfigStore {
   constructor() {
-    this._cache = readJson(CONFIG_PATH, {});
-    this._tickets = readJson(TICKETS_PATH, {});
-    this._licenses = readJson(LICENSES_PATH, {});
-    this._cooldowns = readJson(COOLDOWNS_PATH, {});
+    this._initialized = false;
+    this._usePg = false;
+    this._cache = {};
+    this._tickets = {};
+    this._licenses = {};
+    this._cooldowns = {};
+  }
+
+  async init() {
+    if (this._initialized) return;
+
+    this._usePg = Boolean(process.env.DATABASE_URL?.trim());
+
+    if (this._usePg) {
+      const pg = require('../db/postgres');
+      await pg.initSchema();
+      let imported = await pg.migrateFromJsonIfEmpty();
+      const data = await pg.loadAll();
+      this._cache = data.cache;
+      this._tickets = data.tickets;
+      this._licenses = data.licenses;
+      this._cooldowns = data.cooldowns;
+      this._pg = pg;
+      console.log(
+        imported
+          ? 'Storage: PostgreSQL (migrated from data/*.json)'
+          : 'Storage: PostgreSQL'
+      );
+    } else {
+      this._cache = readJson(CONFIG_PATH, {});
+      this._tickets = readJson(TICKETS_PATH, {});
+      this._licenses = readJson(LICENSES_PATH, {});
+      this._cooldowns = readJson(COOLDOWNS_PATH, {});
+      console.log('Storage: JSON files in data/ (set DATABASE_URL for PostgreSQL)');
+    }
+
+    this._initialized = true;
   }
 
   getGuild(guildId) {
@@ -97,7 +130,11 @@ class ConfigStore {
   }
 
   save() {
-    writeJson(CONFIG_PATH, this._cache);
+    if (this._usePg) {
+      this._pg.persist(this._pg.saveAllGuildConfig(this._cache), 'save guild config');
+    } else {
+      writeJson(CONFIG_PATH, this._cache);
+    }
   }
 
   getTicket(channelId) {
@@ -106,12 +143,20 @@ class ConfigStore {
 
   setTicket(channelId, data) {
     this._tickets[channelId] = data;
-    writeJson(TICKETS_PATH, this._tickets);
+    if (this._usePg) {
+      this._pg.persist(this._pg.upsertTicket(channelId, data), 'setTicket');
+    } else {
+      writeJson(TICKETS_PATH, this._tickets);
+    }
   }
 
   deleteTicket(channelId) {
     delete this._tickets[channelId];
-    writeJson(TICKETS_PATH, this._tickets);
+    if (this._usePg) {
+      this._pg.persist(this._pg.deleteTicket(channelId), 'deleteTicket');
+    } else {
+      writeJson(TICKETS_PATH, this._tickets);
+    }
   }
 
   listTicketsForGuild(guildId) {
@@ -138,7 +183,11 @@ class ConfigStore {
 
   setLicense(guildId, userId, data) {
     this._licenseBucket(guildId)[userId] = data;
-    writeJson(LICENSES_PATH, this._licenses);
+    if (this._usePg) {
+      this._pg.persist(this._pg.upsertLicense(guildId, userId, data), 'setLicense');
+    } else {
+      writeJson(LICENSES_PATH, this._licenses);
+    }
     return data;
   }
 
@@ -159,13 +208,22 @@ class ConfigStore {
   }
 
   setTicketCooldown(guildId, userId, untilMs, reason = 'closed') {
-    this._cooldownBucket(guildId)[userId] = { until: untilMs, reason, setAt: Date.now() };
-    writeJson(COOLDOWNS_PATH, this._cooldowns);
+    const row = { until: untilMs, reason, setAt: Date.now() };
+    this._cooldownBucket(guildId)[userId] = row;
+    if (this._usePg) {
+      this._pg.persist(this._pg.upsertCooldown(guildId, userId, row), 'setTicketCooldown');
+    } else {
+      writeJson(COOLDOWNS_PATH, this._cooldowns);
+    }
   }
 
   clearTicketCooldown(guildId, userId) {
     delete this._cooldownBucket(guildId)[userId];
-    writeJson(COOLDOWNS_PATH, this._cooldowns);
+    if (this._usePg) {
+      this._pg.persist(this._pg.deleteCooldown(guildId, userId), 'clearTicketCooldown');
+    } else {
+      writeJson(COOLDOWNS_PATH, this._cooldowns);
+    }
   }
 
   touchTicketActivity(channelId) {

@@ -103,7 +103,32 @@ Type `/` in Discord to browse commands and descriptions.
 
 ## Data storage
 
-Guild settings and active tickets are stored in `data/guild-config.json` and `data/active-tickets.json`. Back up the `data/` folder when moving servers.
+The bot stores **guild config**, **open tickets**, **licenses**, and **ticket cooldowns**.
+
+| Mode | When | Where |
+|------|------|--------|
+| **PostgreSQL** | `DATABASE_URL` is set (recommended on Render) | Render Postgres — survives redeploys |
+| **JSON files** | `DATABASE_URL` unset (local dev) | `data/*.json` — back up when moving servers |
+
+On first boot with an empty database, existing `data/*.json` files are imported automatically once.
+
+### Render + PostgreSQL setup
+
+1. **Create Postgres** — Render Dashboard → **New +** → **PostgreSQL**. Pick a name and region (same as the bot if possible).
+2. **Copy connection URL** — Open the database → **Connect** → **Internal Database URL** (use this for bot and DB in the same Render account).
+3. **Attach to the bot** — Your **Web Service** → **Environment** → add:
+   - `DATABASE_URL` = Internal Database URL from step 2
+   - Keep `DISCORD_TOKEN`, `CLIENT_ID`, `GUILD_ID` as before
+4. **Deploy** — Push code or **Manual Deploy**. Check logs for `Storage: PostgreSQL` or `migrated from data/*.json`.
+5. **UptimeRobot** — Keep pinging `https://your-app.onrender.com/health` (unchanged).
+
+**Start command:** `npm start` · **Build:** `npm install`
+
+If you already had live data only in `data/*.json` on the server disk, upload or paste that data into `data/` before the first Postgres deploy, or export from a backup — the one-time import runs only when the database is empty.
+
+### What is not in the database
+
+Payment proofs, chat history, and Discord channels/roles (only IDs are stored). Secrets stay in environment variables.
 
 ## Security notes
 
