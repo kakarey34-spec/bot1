@@ -4,12 +4,12 @@ const { getPermissionLevel, LEVELS } = require('../utils/permissions');
 const COMMAND_HELP = {
   everyone: [
     'Use the **Purchase** or **Support** panels to open a private lane (no slash command).',
-    '`/who` — Learn what VIRELLO does and open the website.',
-    '`/price` — View the current license plans.',
     '**Purchase lane:** payment method → pay → **Payment sent** or `done` → upload proof → staff approves.',
     '**Support / Scanner lanes:** describe your issue in the private channel for staff.',
   ],
   staff: [
+    '`/who` — Learn what VIRELLO does and open the website.',
+    '`/price` — View the current license plans.',
     '`/ticket approve` — Approve payment and grant the purchaser role.',
     '`/ticket close` — Close the current ticket channel.',
     '`/kick` `/ban` `/mute` `/unmute` `/clear` — Moderation tools.',

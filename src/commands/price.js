@@ -1,5 +1,6 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder } = require('discord.js');
 const { withLogoPayload } = require('../utils/brand');
+const { LEVELS } = require('../utils/permissions');
 const { virelloEmbed } = require('../utils/ticketUi');
 
 const SITE_URL = 'https://virello-secure.pages.dev/';
@@ -25,6 +26,8 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('price')
     .setDescription('View VIRELLO license plans'),
+  permissionLevel: LEVELS.staff,
+  permissionLabel: 'staff',
   async execute(interaction) {
     const embed = virelloEmbed(interaction.guild.id, {
       title: '◆ VIRELLO — License Plans',
