@@ -1,6 +1,7 @@
 const store = require('../config/store');
 const ticketManager = require('./ticketManager');
 const licenseService = require('./licenseService');
+const { upsertBuyerRegistry } = require('../utils/buyerRegistry');
 
 const { STAGES } = ticketManager;
 
@@ -58,7 +59,10 @@ async function processLicenses(client) {
         await licenseService.removePurchaserRole(guild, userId);
         const updated = licenseService.markLicenseExpired(guild.id, userId);
         const user = await client.users.fetch(userId).catch(() => null);
-        if (user && updated) await licenseService.sendExpiredDm(user, updated);
+        if (user && updated) {
+          await licenseService.sendExpiredDm(user, updated);
+          await upsertBuyerRegistry(guild, userId, updated);
+        }
         continue;
       }
 

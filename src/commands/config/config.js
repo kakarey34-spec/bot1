@@ -49,6 +49,8 @@ const CHANNEL_KEYS = [
   { name: 'Support ticket logs', value: 'logs_support' },
   { name: 'Scanner ticket logs', value: 'logs_scanner' },
   { name: 'Rep reviews channel', value: 'rep' },
+  { name: 'Buyer registry', value: 'buyers' },
+  { name: 'Scanner status channel', value: 'status' },
   { name: 'Panel channel (reference)', value: 'panel' },
 ];
 
@@ -202,6 +204,8 @@ module.exports = {
         logs: 'tickets.logChannelId',
         panel: 'tickets.panelChannelId',
         rep: 'channels.repChannelId',
+        buyers: 'channels.buyerRegistryChannelId',
+        status: 'channels.statusChannelId',
       };
       if (key === 'logs_payments') {
         const config = store.getGuild(interaction.guild.id);

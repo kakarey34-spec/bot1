@@ -14,8 +14,7 @@ function buildStatusEmbed(guildId) {
   const config = store.getGuild(guildId);
   const state = config.scanner?.status || 'operational';
   const meta = STATUS_META[state] || STATUS_META.operational;
-  const message =
-    config.scanner?.statusMessage || 'No status message configured.';
+  const message = config.scanner?.statusMessage || 'No status message configured.';
   const updatedAt = config.scanner?.statusUpdatedAt;
 
   const embed = virelloEmbed(guildId, {
@@ -32,6 +31,34 @@ function buildStatusEmbed(guildId) {
   return withLogoPayload([embed]);
 }
 
+async function publishStatusToChannel(guild) {
+  const config = store.getGuild(guild.id);
+  const channelId = config.channels?.statusChannelId;
+  if (!channelId) return false;
+
+  const channel =
+    guild.channels.cache.get(channelId) ||
+    (await guild.channels.fetch(channelId).catch(() => null));
+  if (!channel?.isTextBased()) return false;
+
+  const payload = buildStatusEmbed(guild.id);
+  const existingId = config.scanner?.statusMessageId;
+
+  if (existingId) {
+    const msg = await channel.messages.fetch(existingId).catch(() => null);
+    if (msg) {
+      await msg.edit(payload).catch(() => null);
+      return true;
+    }
+  }
+
+  const msg = await channel.send(payload).catch(() => null);
+  if (msg) {
+    store.setPath(guild.id, 'scanner.statusMessageId', msg.id);
+  }
+  return Boolean(msg);
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('status')
@@ -42,7 +69,7 @@ module.exports = {
     .addSubcommand((sub) =>
       sub
         .setName('set')
-        .setDescription('Post or update the scanner status embed (staff)')
+        .setDescription('Update scanner status and publish to the status channel (staff)')
         .addStringOption((opt) =>
           opt
             .setName('state')
@@ -64,7 +91,7 @@ module.exports = {
     .addSubcommand((sub) =>
       sub
         .setName('post')
-        .setDescription('Post the current status embed in this channel (staff)')
+        .setDescription('Publish status to the configured status channel (staff)')
     ),
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
@@ -84,24 +111,35 @@ module.exports = {
       const state = interaction.options.getString('state');
       const message = interaction.options.getString('message');
       const config = store.getGuild(interaction.guild.id);
-      config.scanner = {
+      const scanner = {
+        ...config.scanner,
         status: state,
         statusMessage: message,
         statusUpdatedAt: Date.now(),
         statusUpdatedBy: interaction.user.id,
       };
-      store.setGuild(interaction.guild.id, { scanner: config.scanner });
+      store.setGuild(interaction.guild.id, { scanner });
 
+      const published = await publishStatusToChannel(interaction.guild);
       return interaction.reply({
-        content: 'Scanner status updated. Use `/status post` to publish in a channel.',
+        content: published
+          ? 'Scanner status updated and posted to the status channel.'
+          : 'Scanner status saved, but the status channel is missing or not configured.',
         ephemeral: true,
       });
     }
 
     if (sub === 'post') {
-      await interaction.channel.send(buildStatusEmbed(interaction.guild.id));
+      const published = await publishStatusToChannel(interaction.guild);
+      if (!published) {
+        return interaction.reply({
+          content:
+            'Could not post — set `channels.statusChannelId` via `/config channel key:status`.',
+          ephemeral: true,
+        });
+      }
       return interaction.reply({
-        content: 'Status embed posted in this channel.',
+        content: 'Status embed published to the status channel.',
         ephemeral: true,
       });
     }

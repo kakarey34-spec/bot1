@@ -1,4 +1,5 @@
 const store = require('../config/store');
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { getPlan, addMonthsMs, formatPlanLabel, SITE_URL } = require('../constants/plans');
 
 function licenseKey(guildId, userId) {
@@ -30,6 +31,7 @@ function grantLicense(guildId, userId, planId, meta = {}) {
     ticketChannelId: meta.ticketChannelId || null,
     expired: false,
     warningsSent: existing?.warningsSent || [],
+    registryMessageId: existing?.registryMessageId || null,
   };
 
   store.setLicense(guildId, userId, record);
@@ -75,22 +77,52 @@ function licenseStatus(license) {
   };
 }
 
-async function sendWelcomeDm(member, guildId, license, plan) {
-  const config = store.getGuild(guildId);
+async function sendWelcomeDm(guild, userId, license, plan) {
+  const config = store.getGuild(guild.id);
   const siteUrl = config.license?.siteUrl || SITE_URL;
-  const template =
-    config.license?.welcomeDm ||
-    '**Access granted.** Your VIRELLO license is active.\n\n**Plan:** {plan}\n**Valid until:** {expires}\n\nOpen the site: {site}\nUse `/mylicense` anytime to check your status.';
+  const expiresUnix = Math.floor(license.expiresAt / 1000);
 
-  const expires = new Date(license.expiresAt).toUTCString();
-  const text = template
-    .replace(/\{plan\}/g, plan.label)
-    .replace(/\{expires\}/g, expires)
-    .replace(/\{site\}/g, siteUrl);
+  const embed = new EmbedBuilder()
+    .setColor(0x57f287)
+    .setTitle('◆ VIRELLO — Access granted')
+    .setDescription(
+      'Your payment was approved and your license is now **active**.\n\nUse `/mylicense` in the server anytime to check your status.'
+    )
+    .addFields(
+      { name: 'Plan', value: plan.label, inline: true },
+      { name: 'Valid until', value: `<t:${expiresUnix}:F>`, inline: true },
+      { name: 'Website', value: siteUrl, inline: false }
+    )
+    .setTimestamp();
 
-  await member.user
-    .send({ content: text })
-    .catch(() => null);
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setLabel('Open VIRELLO').setStyle(ButtonStyle.Link).setURL(siteUrl)
+  );
+
+  const payload = { embeds: [embed], components: [row] };
+
+  const member = await guild.members.fetch(userId).catch(() => null);
+  if (member) {
+    try {
+      await member.send(payload);
+      return { ok: true };
+    } catch (err) {
+      console.warn(`Welcome DM (member) failed for ${userId}:`, err.message);
+    }
+  }
+
+  try {
+    const user = await guild.client.users.fetch(userId);
+    await user.send(payload);
+    return { ok: true };
+  } catch (err) {
+    console.warn(`Welcome DM (user) failed for ${userId}:`, err.message);
+    return {
+      ok: false,
+      error:
+        'Could not send a DM — enable **Direct Messages** from server members in Privacy & Safety, or message the bot first.',
+    };
+  }
 }
 
 async function sendExpiryWarningDm(user, guildId, license, daysLeft) {

@@ -20,11 +20,11 @@ module.exports = {
     deniedMessage:
       'We could not verify this payment. Reply here with more details or contact staff if you believe this is a mistake.',
     closedMessage: 'This lane has been closed. Open a new one from the panel if you still need help.',
-    openCooldownMinutes: 30,
+    openCooldownMinutes: 5,
     inactiveCloseHours: 48,
     categoryLogChannels: {
       support: '1511637386080161792',
-      scanner: '1511637386080161792',
+      scanner: '1511840050298622083',
       payments: '1511637484185063475',
     },
     panels: null,
@@ -76,6 +76,8 @@ module.exports = {
   },
   channels: {
     repChannelId: '1511488413327691816',
+    buyerRegistryChannelId: '1511637354887122955',
+    statusChannelId: '1511840270810087474',
   },
   license: {
     siteUrl: 'https://virello-secure.pages.dev/',

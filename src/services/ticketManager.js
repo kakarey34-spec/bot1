@@ -18,6 +18,7 @@ const {
   staffApprovalRow,
 } = require('../utils/components');
 const licenseService = require('./licenseService');
+const { upsertBuyerRegistry } = require('../utils/buyerRegistry');
 const ticketLog = require('../utils/ticketLog');
 const { getPlan } = require('../constants/plans');
 
@@ -476,8 +477,24 @@ async function approvePayment(guild, channelId, staffMember) {
     ...buildApprovedEmbed(guild.id, config.tickets.approvedMessage),
   });
 
-  if (member && licenseResult.ok) {
-    await licenseService.sendWelcomeDm(member, guild.id, licenseResult.license, licenseResult.plan);
+  if (licenseResult.ok) {
+    await upsertBuyerRegistry(guild, ticket.userId, licenseResult.license);
+
+    const dmResult = await licenseService.sendWelcomeDm(
+      guild,
+      ticket.userId,
+      licenseResult.license,
+      licenseResult.plan
+    );
+
+    if (!dmResult.ok) {
+      await channel
+        .send({
+          content: `<@${ticket.userId}> ${dmResult.error}`,
+          allowedMentions: { users: [ticket.userId] },
+        })
+        .catch(() => null);
+    }
   }
 
   await ticketLog.logTicketApproved(guild, ticket, channelId, staffMember);
