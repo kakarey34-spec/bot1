@@ -1,0 +1,20 @@
+{
+  "name": "virellobot",
+  "version": "1.0.0",
+  "description": "Discord bot with ticket-based payments, moderation, and in-app configuration",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": ["discord", "bot", "tickets", "payments"],
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.7"
+  }
+}
