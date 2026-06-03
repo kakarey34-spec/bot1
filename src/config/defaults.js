@@ -53,8 +53,8 @@ module.exports = {
     },
   },
   roles: {
-    autoRoleId: null,
-    purchaserRoleId: null,
+    autoRoleId: '1511486871153152120',
+    purchaserRoleId: '1510614274299531334',
     staffRoleIds: [],
     muteRoleId: null,
   },
