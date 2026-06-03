@@ -9,6 +9,7 @@ const {
 const PANEL_TYPES = {
   purchase: 'purchase',
   support: 'support',
+  renewal: 'renewal',
 };
 
 const DEFAULT_CATEGORIES = {
@@ -47,6 +48,7 @@ const DEFAULT_CATEGORIES = {
 const DEFAULT_PANELS = {
   purchase: { categories: [DEFAULT_CATEGORIES.payments] },
   support: { categories: [DEFAULT_CATEGORIES.support, DEFAULT_CATEGORIES.scanner] },
+  renewal: { categories: [DEFAULT_CATEGORIES.payments] },
 };
 
 function getPanelConfig(guildId, panelType) {
@@ -92,6 +94,10 @@ function normalizeButtonEmoji(emoji, fallback = null) {
 function buildTicketPanelPayload(guildId, panelType) {
   if (panelType === PANEL_TYPES.purchase) {
     return buildPurchasePanelEmbed(guildId);
+  }
+  if (panelType === PANEL_TYPES.renewal) {
+    const { buildRenewalPanelEmbed } = require('./ticketPanelRenewal');
+    return buildRenewalPanelEmbed(guildId);
   }
   return buildSupportPanelEmbed(guildId);
 }

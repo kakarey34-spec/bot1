@@ -5,6 +5,8 @@ const defaults = require('./defaults');
 const DATA_DIR = path.join(__dirname, '../../data');
 const CONFIG_PATH = path.join(DATA_DIR, 'guild-config.json');
 const TICKETS_PATH = path.join(DATA_DIR, 'active-tickets.json');
+const LICENSES_PATH = path.join(DATA_DIR, 'licenses.json');
+const COOLDOWNS_PATH = path.join(DATA_DIR, 'ticket-cooldowns.json');
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) {
@@ -52,6 +54,8 @@ class ConfigStore {
   constructor() {
     this._cache = readJson(CONFIG_PATH, {});
     this._tickets = readJson(TICKETS_PATH, {});
+    this._licenses = readJson(LICENSES_PATH, {});
+    this._cooldowns = readJson(COOLDOWNS_PATH, {});
   }
 
   getGuild(guildId) {
@@ -121,6 +125,54 @@ class ConfigStore {
     return this.listTicketsForGuild(guildId).find(
       (t) => t.userId === userId && t.stage !== 'closed'
     );
+  }
+
+  _licenseBucket(guildId) {
+    if (!this._licenses[guildId]) this._licenses[guildId] = {};
+    return this._licenses[guildId];
+  }
+
+  getLicense(guildId, userId) {
+    return this._licenseBucket(guildId)[userId] || null;
+  }
+
+  setLicense(guildId, userId, data) {
+    this._licenseBucket(guildId)[userId] = data;
+    writeJson(LICENSES_PATH, this._licenses);
+    return data;
+  }
+
+  listLicensesForGuild(guildId) {
+    return Object.entries(this._licenseBucket(guildId)).map(([userId, license]) => ({
+      userId,
+      ...license,
+    }));
+  }
+
+  _cooldownBucket(guildId) {
+    if (!this._cooldowns[guildId]) this._cooldowns[guildId] = {};
+    return this._cooldowns[guildId];
+  }
+
+  getTicketCooldown(guildId, userId) {
+    return this._cooldownBucket(guildId)[userId] || null;
+  }
+
+  setTicketCooldown(guildId, userId, untilMs, reason = 'closed') {
+    this._cooldownBucket(guildId)[userId] = { until: untilMs, reason, setAt: Date.now() };
+    writeJson(COOLDOWNS_PATH, this._cooldowns);
+  }
+
+  clearTicketCooldown(guildId, userId) {
+    delete this._cooldownBucket(guildId)[userId];
+    writeJson(COOLDOWNS_PATH, this._cooldowns);
+  }
+
+  touchTicketActivity(channelId) {
+    const ticket = this.getTicket(channelId);
+    if (!ticket) return;
+    ticket.lastActivityAt = Date.now();
+    this.setTicket(channelId, ticket);
   }
 }
 

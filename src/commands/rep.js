@@ -5,27 +5,32 @@ const {
   TextInputBuilder,
   TextInputStyle,
 } = require('discord.js');
-
-const REP_CHANNEL_ID = '1511488413327691816';
-const REP_ROLE_ID = '1510614274299531334';
+const store = require('../config/store');
+const { hasPurchaserRole, denyPurchaserInteraction } = require('../utils/permissions');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('rep')
-    .setDescription('Leave a service rating'),
+    .setDescription('Leave a service rating (buyers only, in rep channel)'),
   async execute(interaction) {
-    if (interaction.channelId !== REP_CHANNEL_ID) {
+    const config = store.getGuild(interaction.guild.id);
+    const repChannelId = config.channels?.repChannelId;
+    if (!repChannelId) {
       return interaction.reply({
-        content: `You can only use /rep in <#${REP_CHANNEL_ID}>.`,
+        content: 'Rep channel is not configured. Ask staff to run `/config channel key:rep`.',
         ephemeral: true,
       });
     }
 
-    if (!interaction.member.roles.cache.has(REP_ROLE_ID)) {
+    if (interaction.channelId !== repChannelId) {
       return interaction.reply({
-        content: 'You do not have permission to use /rep.',
+        content: `You can only use /rep in <#${repChannelId}>.`,
         ephemeral: true,
       });
+    }
+
+    if (!hasPurchaserRole(interaction.member)) {
+      return denyPurchaserInteraction(interaction);
     }
 
     const modal = new ModalBuilder()
@@ -58,6 +63,3 @@ module.exports = {
     return interaction.showModal(modal);
   },
 };
-
-module.exports.REP_CHANNEL_ID = REP_CHANNEL_ID;
-module.exports.REP_ROLE_ID = REP_ROLE_ID;

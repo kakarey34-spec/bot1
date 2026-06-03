@@ -92,7 +92,7 @@ function buildTicketWelcome(guildId, category, member) {
     }).addFields(
       {
         name: 'Next step',
-        value: 'Select your payment method using the buttons below.',
+        value: 'Choose your **license plan** using the buttons below, then select a payment method.',
         inline: false,
       },
       {
@@ -184,11 +184,13 @@ function buildProofReceivedEmbed(guildId, message) {
 }
 
 function buildStaffReviewEmbed(guildId, ticket, proofUrl) {
+  const { formatPlanLabel } = require('../constants/plans');
   const embed = virelloEmbed(guildId, {
     title: '◆ Payment awaiting review',
     description: 'A purchase is ready for staff verification.',
   }).addFields(
     { name: 'Buyer', value: `<@${ticket.userId}>`, inline: true },
+    { name: 'Plan', value: formatPlanLabel(ticket.planId), inline: true },
     { name: 'Method', value: `\`${ticket.paymentMethod || 'unknown'}\``, inline: true },
     { name: 'Proof', value: `[View message](${proofUrl})`, inline: true }
   );
@@ -205,10 +207,15 @@ function buildApprovedEmbed(guildId, message) {
   return withLogoPayload([embed]);
 }
 
-function buildDeniedEmbed(guildId, message) {
+function buildDeniedEmbed(guildId, message, reason = null) {
+  const fields = [];
+  if (reason) {
+    fields.push({ name: 'Reason', value: reason.slice(0, 1000), inline: false });
+  }
   const embed = virelloEmbed(guildId, {
     title: '◆ Payment not approved',
     description: message,
+    fields: fields.length ? fields : undefined,
   });
 
   return withLogoPayload([embed]);

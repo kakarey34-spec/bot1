@@ -15,12 +15,41 @@ const TICKET_IDS = {
   deny: 'ticket_deny',
 };
 
+const PLAN_IDS = {
+  monthly: 'plan_monthly',
+  quarterly: 'plan_quarterly',
+  yearly: 'plan_yearly',
+};
+
+const PLAN_KEY_MAP = {
+  [PLAN_IDS.monthly]: 'monthly',
+  [PLAN_IDS.quarterly]: 'quarterly',
+  [PLAN_IDS.yearly]: 'yearly',
+};
+
 const PAYMENT_EMOJI = {
   paypal: '💳',
   ethereum: '💎',
   litecoin: '🪙',
   greek_paysafe: '🎫',
 };
+
+function planSelectionRow() {
+  const { listPlans } = require('../constants/plans');
+  const buttons = listPlans().map((plan) =>
+    new ButtonBuilder()
+      .setCustomId(PLAN_IDS[plan.id])
+      .setLabel(plan.label)
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji(plan.emoji)
+  );
+
+  const rows = [];
+  for (let i = 0; i < buttons.length; i += 5) {
+    rows.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
+  }
+  return rows;
+}
 
 function paymentMethodRow(enabledMethods) {
   const buttons = enabledMethods.map(([key, method]) => {
@@ -77,6 +106,9 @@ function staffApprovalRow(ticketChannelId) {
 module.exports = {
   PAYMENT_IDS,
   TICKET_IDS,
+  PLAN_IDS,
+  PLAN_KEY_MAP,
+  planSelectionRow,
   paymentMethodRow,
   paymentDoneRow,
   staffApprovalRow,

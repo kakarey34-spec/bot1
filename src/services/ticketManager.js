@@ -12,14 +12,19 @@ const {
   buildClosedEmbed,
 } = require('../utils/ticketUi');
 const {
+  planSelectionRow,
   paymentMethodRow,
   paymentDoneRow,
   staffApprovalRow,
 } = require('../utils/components');
+const licenseService = require('./licenseService');
+const ticketLog = require('../utils/ticketLog');
+const { getPlan } = require('../constants/plans');
 
-const { getCategoryById } = require('../utils/ticketPanel');
+const { getCategoryById, DEFAULT_CATEGORIES } = require('../utils/ticketPanel');
 
 const STAGES = {
+  SELECT_PLAN: 'select_plan',
   SELECT_PAYMENT: 'select_payment',
   AWAITING_PAYMENT: 'awaiting_payment',
   AWAITING_PROOF: 'awaiting_proof',
@@ -28,12 +33,6 @@ const STAGES = {
   APPROVED: 'approved',
   DENIED: 'denied',
   CLOSED: 'closed',
-};
-
-const TICKET_LOG_CHANNELS = {
-  support: '1511637386080161792',
-  scanner: '1511637386080161792',
-  payments: '1511637484185063475',
 };
 
 const STAFF_CHANNEL_PERMS = [
@@ -207,16 +206,37 @@ function openTicketErrorMessage(channel) {
   };
 }
 
+function isPaymentCategory(categoryId) {
+  return categoryId === 'payments' || DEFAULT_CATEGORIES[categoryId]?.requiresPayment === true;
+}
+
+function checkOpenCooldown(guildId, userId) {
+  const config = store.getGuild(guildId);
+  const cooldown = store.getTicketCooldown(guildId, userId);
+  if (!cooldown || cooldown.until <= Date.now()) return null;
+
+  const minutes = Math.ceil((cooldown.until - Date.now()) / 60000);
+  return `You must wait **${minutes} minute(s)** before opening another purchase lane (${cooldown.reason || 'cooldown'}).`;
+}
+
+function applyPurchaseCooldown(guildId, userId, reason) {
+  const config = store.getGuild(guildId);
+  const minutes = config.tickets.openCooldownMinutes ?? 30;
+  if (minutes <= 0) return;
+  store.setTicketCooldown(guildId, userId, Date.now() + minutes * 60 * 1000, reason);
+}
+
 async function sendTicketOpeningMessages(channel, guild, member, ticketData, config) {
   const category = getCategoryById(guild.id, ticketData.category);
   const requiresPayment = category?.requiresPayment === true;
   const welcomePayload = buildTicketWelcome(guild.id, category, member);
 
   if (requiresPayment) {
-    const enabledMethods = Object.entries(config.payments).filter(([, m]) => m.enabled !== false);
+    ticketData.stage = STAGES.SELECT_PLAN;
+    store.setTicket(channel.id, ticketData);
     await channel.send({
       ...welcomePayload,
-      components: paymentMethodRow(enabledMethods),
+      components: planSelectionRow(),
     });
     return;
   }
@@ -250,10 +270,20 @@ async function createTicket(guild, member, categoryId = 'payments') {
       return { error: 'Unknown ticket category. Ask an admin to refresh the ticket panel.' };
     }
 
+    if (category.requiresPayment) {
+      const cooldownMsg = checkOpenCooldown(guild.id, member.id);
+      if (cooldownMsg) return { error: cooldownMsg };
+    }
+
     const overwrites = buildTicketPermissionOverwrites(guild, member.id, config);
 
     const channel = await guild.channels.create({
-      name: ticketChannelName(STAGES.SELECT_PAYMENT, member.user.username, config, categoryId),
+      name: ticketChannelName(
+        category.requiresPayment ? STAGES.SELECT_PLAN : STAGES.AWAITING_STAFF,
+        member.user.username,
+        config,
+        categoryId
+      ),
       type: ChannelType.GuildText,
       parent: config.tickets.categoryId || undefined,
       permissionOverwrites: overwrites,
@@ -264,18 +294,49 @@ async function createTicket(guild, member, categoryId = 'payments') {
       guildId: guild.id,
       userId: member.id,
       category: categoryId,
-      stage: category.requiresPayment ? STAGES.SELECT_PAYMENT : STAGES.AWAITING_STAFF,
+      stage: category.requiresPayment ? STAGES.SELECT_PLAN : STAGES.AWAITING_STAFF,
+      planId: null,
       paymentMethod: null,
       createdAt: Date.now(),
+      lastActivityAt: Date.now(),
     };
     store.setTicket(channel.id, ticketData);
 
     await sendTicketOpeningMessages(channel, guild, member, ticketData, config);
+    await ticketLog.logTicketOpened(guild, channel, ticketData, member);
 
     return { channel, ticketData };
   } finally {
     ticketCreationLocks.delete(lockKey);
   }
+}
+
+async function selectPlan(channel, userId, planId) {
+  const ticket = store.getTicket(channel.id);
+  if (!ticket || ticket.userId !== userId) {
+    return { error: 'This ticket does not belong to you or is invalid.' };
+  }
+  if (ticket.stage !== STAGES.SELECT_PLAN) {
+    return { error: 'A plan was already selected.' };
+  }
+
+  const plan = getPlan(planId);
+  if (!plan) return { error: 'Unknown license plan.' };
+
+  const config = store.getGuild(channel.guild.id);
+  ticket.planId = planId;
+  ticket.stage = STAGES.SELECT_PAYMENT;
+  ticket.lastActivityAt = Date.now();
+  store.setTicket(channel.id, ticket);
+
+  const enabledMethods = Object.entries(config.payments).filter(([, m]) => m.enabled !== false);
+  await channel.send({
+    content: `**${plan.label}** selected (${plan.price}${plan.term}). Choose your payment method:`,
+    components: paymentMethodRow(enabledMethods),
+  });
+
+  await ticketLog.logTicketPlanSelected(channel.guild, ticket, channel.id, planId);
+  return { ok: true };
 }
 
 async function selectPaymentMethod(channel, userId, methodKey) {
@@ -286,6 +347,9 @@ async function selectPaymentMethod(channel, userId, methodKey) {
   if (ticket.stage !== STAGES.SELECT_PAYMENT && ticket.stage !== STAGES.AWAITING_PAYMENT) {
     return { error: 'Payment method was already selected.' };
   }
+  if (!ticket.planId) {
+    return { error: 'Select a license plan first.' };
+  }
 
   const config = store.getGuild(channel.guild.id);
   const method = config.payments[methodKey];
@@ -295,6 +359,7 @@ async function selectPaymentMethod(channel, userId, methodKey) {
 
   ticket.paymentMethod = methodKey;
   ticket.stage = STAGES.AWAITING_PAYMENT;
+  ticket.lastActivityAt = Date.now();
   store.setTicket(channel.id, ticket);
 
   await channel.send({
@@ -315,6 +380,7 @@ async function markPaymentDone(channel, userId) {
 
   const config = store.getGuild(channel.guild.id);
   ticket.stage = STAGES.AWAITING_PROOF;
+  ticket.lastActivityAt = Date.now();
   store.setTicket(channel.id, ticket);
 
   await channel.send(
@@ -338,6 +404,7 @@ async function handleProofMessage(message) {
   ticket.stage = STAGES.AWAITING_APPROVAL;
   ticket.proofMessageId = message.id;
   ticket.proofAt = Date.now();
+  ticket.lastActivityAt = Date.now();
   store.setTicket(message.channel.id, ticket);
 
   await syncTicketChannelName(message.channel, ticket, config);
@@ -353,6 +420,7 @@ async function handleProofMessage(message) {
     components: staffApprovalRow(message.channel.id),
   });
 
+  await ticketLog.logTicketAwaitingApproval(message.guild, ticket, message.channel.id);
   return true;
 }
 
@@ -382,9 +450,19 @@ async function approvePayment(guild, channelId, staffMember) {
   const config = store.getGuild(guild.id);
   const member = await guild.members.fetch(ticket.userId).catch(() => null);
 
+  if (!ticket.planId) {
+    return { error: 'No license plan on this ticket — ask the buyer to re-select a plan.' };
+  }
+
   if (config.roles.purchaserRoleId && member) {
     await member.roles.add(config.roles.purchaserRoleId, 'Payment approved').catch(() => null);
   }
+
+  const licenseResult = licenseService.grantLicense(guild.id, ticket.userId, ticket.planId, {
+    approvedBy: staffMember.id,
+    approvedAt: Date.now(),
+    ticketChannelId: channelId,
+  });
 
   ticket.stage = STAGES.APPROVED;
   ticket.approvedBy = staffMember.id;
@@ -398,10 +476,17 @@ async function approvePayment(guild, channelId, staffMember) {
     ...buildApprovedEmbed(guild.id, config.tickets.approvedMessage),
   });
 
-  return { ok: true, member };
+  if (member && licenseResult.ok) {
+    await licenseService.sendWelcomeDm(member, guild.id, licenseResult.license, licenseResult.plan);
+  }
+
+  await ticketLog.logTicketApproved(guild, ticket, channelId, staffMember);
+  store.clearTicketCooldown(guild.id, ticket.userId);
+
+  return { ok: true, member, license: licenseResult.license };
 }
 
-async function denyPayment(guild, channelId, staffMember) {
+async function denyPayment(guild, channelId, staffMember, reason = null) {
   const channel = guild.channels.cache.get(channelId);
   if (!channel) return { error: 'Ticket channel not found.' };
 
@@ -411,15 +496,21 @@ async function denyPayment(guild, channelId, staffMember) {
   const config = store.getGuild(guild.id);
   ticket.stage = STAGES.DENIED;
   ticket.deniedBy = staffMember.id;
+  ticket.denyReason = reason;
   store.setTicket(channelId, ticket);
 
   await syncTicketChannelName(channel, ticket, config);
 
   await channel.send({
     content: `<@${ticket.userId}>`,
-    ...buildDeniedEmbed(guild.id, config.tickets.deniedMessage),
+    ...buildDeniedEmbed(guild.id, config.tickets.deniedMessage, reason),
   });
 
+  if (isPaymentCategory(ticket.category)) {
+    applyPurchaseCooldown(guild.id, ticket.userId, 'denied');
+  }
+
+  await ticketLog.logTicketDenied(guild, ticket, channelId, staffMember, reason);
   return { ok: true };
 }
 
@@ -434,13 +525,12 @@ async function closeTicket(channel, closedBy) {
 
   await channel.send(buildClosedEmbed(channel.guild.id, config.tickets.closedMessage));
 
+  if (ticket && isPaymentCategory(ticket.category)) {
+    applyPurchaseCooldown(channel.guild.id, ticket.userId, 'closed');
+  }
+
   const transcript = await buildTicketTranscript(channel);
-  await logTicket(
-    channel.guild,
-    `Ticket **#${channel.name}** closed by ${closedBy.user?.tag || closedBy}. Transcript attached.`,
-    ticket?.category,
-    transcript
-  );
+  await ticketLog.logTicketClosed(channel.guild, ticket, channel, closedBy, transcript);
 
   setTimeout(() => {
     store.deleteTicket(channel.id);
@@ -497,28 +587,36 @@ async function buildTicketTranscript(channel) {
   });
 }
 
-async function logTicket(guild, text, categoryId = null, transcript = null) {
-  const config = store.getGuild(guild.id);
-  const logChannelId = TICKET_LOG_CHANNELS[categoryId] || config.tickets.logChannelId;
-  if (!logChannelId) return;
-  const logCh =
-    guild.channels.cache.get(logChannelId) ||
-    (await guild.channels.fetch(logChannelId).catch(() => null));
-  if (!logCh?.isTextBased()) return;
-  await logCh
-    .send({
-      content: text,
-      files: transcript ? [transcript] : [],
-    })
-    .catch(() => null);
+function getTicketStats(guildId) {
+  const tickets = store.listTicketsForGuild(guildId).filter((t) => t.stage !== STAGES.CLOSED);
+  const awaiting = tickets.filter((t) => t.stage === STAGES.AWAITING_APPROVAL);
+  const open = tickets.filter((t) => t.stage !== STAGES.AWAITING_APPROVAL);
+  const oldest = tickets.reduce(
+    (acc, t) => (!acc || t.createdAt < acc.createdAt ? t : acc),
+    null
+  );
+
+  return {
+    totalOpen: tickets.length,
+    awaitingApproval: awaiting.length,
+    otherOpen: open.length,
+    oldest,
+    tickets,
+  };
+}
+
+function touchTicketChannelActivity(channelId) {
+  store.touchTicketActivity(channelId);
 }
 
 module.exports = {
   STAGES,
+  isPaymentCategory,
   collectTicketViewers,
   buildTicketPermissionOverwrites,
   findActiveUserTicket,
   createTicket,
+  selectPlan,
   selectPaymentMethod,
   markPaymentDone,
   handleProofMessage,
@@ -526,4 +624,6 @@ module.exports = {
   approvePayment,
   denyPayment,
   closeTicket,
+  getTicketStats,
+  touchTicketChannelActivity,
 };

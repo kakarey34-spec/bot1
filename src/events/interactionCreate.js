@@ -1,9 +1,15 @@
-const { EmbedBuilder } = require('discord.js');
-const { PAYMENT_IDS, TICKET_IDS } = require('../utils/components');
+const {
+  ActionRowBuilder,
+  EmbedBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+} = require('discord.js');
+const { PAYMENT_IDS, TICKET_IDS, PLAN_KEY_MAP } = require('../utils/components');
 const { parseTicketOpenCategory } = require('../utils/ticketPanel');
 const { canUse, LEVELS } = require('../utils/permissions');
+const store = require('../config/store');
 const ticketManager = require('../services/ticketManager');
-const { REP_CHANNEL_ID, REP_ROLE_ID } = require('../commands/rep');
 
 const PAYMENT_KEY_MAP = {
   [PAYMENT_IDS.paypal]: 'paypal',
@@ -34,12 +40,38 @@ module.exports = {
       }
 
       if (interaction.isModalSubmit()) {
+        if (interaction.customId.startsWith('deny_modal:')) {
+          if (!canUse(interaction.member, LEVELS.staff)) {
+            return interaction.reply({
+              content: 'Only authorized staff can deny payments.',
+              ephemeral: true,
+            });
+          }
+
+          const channelId = interaction.customId.split(':')[1];
+          const reason = interaction.fields.getTextInputValue('reason').trim();
+          await interaction.deferReply({ ephemeral: true });
+          const result = await ticketManager.denyPayment(
+            interaction.guild,
+            channelId,
+            interaction.member,
+            reason || null
+          );
+          if (result.error) {
+            return interaction.editReply({ content: result.error });
+          }
+          return interaction.editReply({ content: 'Payment denied and buyer notified.' });
+        }
+
         if (!interaction.customId.startsWith('rep:')) return;
 
+        const config = store.getGuild(interaction.guild.id);
+        const repChannelId = config.channels?.repChannelId;
         const [, channelId, userId] = interaction.customId.split(':');
         if (
-          channelId !== REP_CHANNEL_ID ||
-          interaction.channelId !== REP_CHANNEL_ID ||
+          !repChannelId ||
+          channelId !== repChannelId ||
+          interaction.channelId !== repChannelId ||
           interaction.user.id !== userId
         ) {
           return interaction.reply({
@@ -48,7 +80,8 @@ module.exports = {
           });
         }
 
-        if (!interaction.member.roles.cache.has(REP_ROLE_ID)) {
+        const { hasPurchaserRole } = require('../utils/permissions');
+        if (!hasPurchaserRole(interaction.member)) {
           return interaction.reply({
             content: 'You do not have permission to submit this rating.',
             ephemeral: true,
@@ -115,6 +148,19 @@ module.exports = {
         });
       }
 
+      const planKey = PLAN_KEY_MAP[customId];
+      if (planKey) {
+        const result = await ticketManager.selectPlan(
+          interaction.channel,
+          interaction.user.id,
+          planKey
+        );
+        if (result.error) {
+          return interaction.reply({ content: result.error, ephemeral: true });
+        }
+        return interaction.reply({ content: 'Plan saved. Choose a payment method above.', ephemeral: true });
+      }
+
       if (customId.startsWith('payment_')) {
         const methodKey = PAYMENT_KEY_MAP[customId] || customId.replace('payment_', '');
         const result = await ticketManager.selectPaymentMethod(
@@ -167,16 +213,19 @@ module.exports = {
           });
         }
         const channelId = customId.split(':')[1];
-        await interaction.deferReply({ ephemeral: true });
-        const result = await ticketManager.denyPayment(
-          interaction.guild,
-          channelId,
-          interaction.member
-        );
-        if (result.error) {
-          return interaction.editReply({ content: result.error });
-        }
-        return interaction.editReply({ content: 'Payment denied.' });
+        const modal = new ModalBuilder()
+          .setCustomId(`deny_modal:${channelId}`)
+          .setTitle('Decline payment');
+        const reasonInput = new TextInputBuilder()
+          .setCustomId('reason')
+          .setLabel('Reason for decline')
+          .setPlaceholder('Explain why payment was not approved')
+          .setStyle(TextInputStyle.Paragraph)
+          .setMinLength(3)
+          .setMaxLength(500)
+          .setRequired(true);
+        modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
+        return interaction.showModal(modal);
       }
 
       if (customId === TICKET_IDS.close) {

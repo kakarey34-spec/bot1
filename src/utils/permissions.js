@@ -40,6 +40,25 @@ function canUse(member, requiredLevel) {
   return getPermissionLevel(member) >= requiredLevel;
 }
 
+function hasPurchaserRole(member) {
+  if (!member) return false;
+  const config = store.getGuild(member.guild.id);
+  const roleId = config.roles.purchaserRoleId;
+  return roleId ? member.roles.cache.has(roleId) : false;
+}
+
+function denyPurchaserInteraction(interaction) {
+  const payload = {
+    content:
+      'You need an active **buyer** role to use this command. Purchase or renew access first.',
+    ephemeral: true,
+  };
+  if (interaction.replied || interaction.deferred) {
+    return interaction.editReply(payload);
+  }
+  return interaction.reply(payload);
+}
+
 function denyReply(message, levelName = 'authorized staff') {
   return message.reply({
     content: `You do not have permission to use this command. This action requires **${levelName}** access.`,
@@ -62,8 +81,10 @@ module.exports = {
   LEVELS,
   getPermissionLevel,
   canUse,
+  hasPurchaserRole,
   denyReply,
   denyInteraction,
+  denyPurchaserInteraction,
   isWhitelistedUser,
   memberHasRole,
 };

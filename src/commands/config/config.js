@@ -44,7 +44,11 @@ const ROLE_KEYS = [
 
 const CHANNEL_KEYS = [
   { name: 'Ticket category', value: 'category' },
-  { name: 'Ticket logs', value: 'logs' },
+  { name: 'Ticket logs (fallback)', value: 'logs' },
+  { name: 'Payment ticket logs', value: 'logs_payments' },
+  { name: 'Support ticket logs', value: 'logs_support' },
+  { name: 'Scanner ticket logs', value: 'logs_scanner' },
+  { name: 'Rep reviews channel', value: 'rep' },
   { name: 'Panel channel (reference)', value: 'panel' },
 ];
 
@@ -197,8 +201,23 @@ module.exports = {
         category: 'tickets.categoryId',
         logs: 'tickets.logChannelId',
         panel: 'tickets.panelChannelId',
+        rep: 'channels.repChannelId',
       };
-      store.setPath(interaction.guild.id, map[key], channel.id);
+      if (key === 'logs_payments') {
+        const config = store.getGuild(interaction.guild.id);
+        const categoryLogs = { ...(config.tickets.categoryLogChannels || {}), payments: channel.id };
+        store.setPath(interaction.guild.id, 'tickets.categoryLogChannels', JSON.stringify(categoryLogs));
+      } else if (key === 'logs_support') {
+        const config = store.getGuild(interaction.guild.id);
+        const categoryLogs = { ...(config.tickets.categoryLogChannels || {}), support: channel.id };
+        store.setPath(interaction.guild.id, 'tickets.categoryLogChannels', JSON.stringify(categoryLogs));
+      } else if (key === 'logs_scanner') {
+        const config = store.getGuild(interaction.guild.id);
+        const categoryLogs = { ...(config.tickets.categoryLogChannels || {}), scanner: channel.id };
+        store.setPath(interaction.guild.id, 'tickets.categoryLogChannels', JSON.stringify(categoryLogs));
+      } else {
+        store.setPath(interaction.guild.id, map[key], channel.id);
+      }
       return interaction.reply({
         embeds: [successEmbed(interaction.guild.id, `Channel \`${key}\` set.`)],
         ephemeral: true,

@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, ChannelType } = require('discord.js');
+const { EmbedBuilder, SlashCommandBuilder, ChannelType } = require('discord.js');
 const {
   buildTicketPanelPayload,
   buildTicketPanelRows,
@@ -23,9 +23,16 @@ module.exports = {
             .setRequired(true)
             .addChoices(
               { name: 'Purchase (payments)', value: PANEL_TYPES.purchase },
-              { name: 'Support (help & scanner)', value: PANEL_TYPES.support }
+              { name: 'Support (help & scanner)', value: PANEL_TYPES.support },
+              { name: 'Renewal (license extension)', value: PANEL_TYPES.renewal }
             )
         )
+    )
+    .addSubcommand((sub) =>
+      sub.setName('list').setDescription('List open tickets in this server (staff)')
+    )
+    .addSubcommand((sub) =>
+      sub.setName('stats').setDescription('Ticket queue summary (staff)')
     )
     .addSubcommand((sub) =>
       sub.setName('close').setDescription('Close the ticket channel you are in')
@@ -52,7 +59,12 @@ module.exports = {
       }
 
       const panelType = interaction.options.getString('type');
-      const panelLabel = panelType === PANEL_TYPES.purchase ? 'Purchase' : 'Support';
+      const panelLabels = {
+        [PANEL_TYPES.purchase]: 'Purchase',
+        [PANEL_TYPES.support]: 'Support',
+        [PANEL_TYPES.renewal]: 'Renewal',
+      };
+      const panelLabel = panelLabels[panelType] || panelType;
 
       await interaction.deferReply({ ephemeral: true });
 
@@ -113,7 +125,57 @@ module.exports = {
       if (result.error) {
         return interaction.editReply({ content: result.error });
       }
-      return interaction.editReply({ content: 'Payment approved. Purchaser role has been granted.' });
+      return interaction.editReply({
+        content: 'Payment approved. Purchaser role granted and license recorded.',
+      });
+    }
+
+    if (sub === 'list' || sub === 'stats') {
+      const { canUse, denyInteraction } = require('../utils/permissions');
+      if (!canUse(interaction.member, LEVELS.staff)) {
+        return denyInteraction(interaction, 'staff');
+      }
+
+      const { tickets, totalOpen, awaitingApproval, oldest } = ticketManager.getTicketStats(
+        interaction.guild.id
+      );
+
+      if (sub === 'stats') {
+        const embed = new EmbedBuilder()
+          .setColor(0xd40000)
+          .setTitle('◆ Ticket stats')
+          .addFields(
+            { name: 'Open tickets', value: String(totalOpen), inline: true },
+            { name: 'Awaiting approval', value: String(awaitingApproval), inline: true },
+            {
+              name: 'Oldest open',
+              value: oldest
+                ? `<#${oldest.channelId}> — <t:${Math.floor(oldest.createdAt / 1000)}:R>`
+                : 'None',
+              inline: false,
+            }
+          )
+          .setTimestamp();
+
+        return interaction.reply({ embeds: [embed], ephemeral: true });
+      }
+
+      if (!tickets.length) {
+        return interaction.reply({ content: 'No open tickets.', ephemeral: true });
+      }
+
+      const lines = tickets.slice(0, 20).map((t) => {
+        const plan = t.planId ? ` · plan \`${t.planId}\`` : '';
+        return `<#${t.channelId}> — \`${t.stage}\`${plan} — <@${t.userId}>`;
+      });
+
+      const embed = new EmbedBuilder()
+        .setColor(0xd40000)
+        .setTitle(`◆ Open tickets (${tickets.length})`)
+        .setDescription(lines.join('\n').slice(0, 4000))
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed], ephemeral: true });
     }
   },
 };

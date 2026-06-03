@@ -20,6 +20,13 @@ module.exports = {
     deniedMessage:
       'We could not verify this payment. Reply here with more details or contact staff if you believe this is a mistake.',
     closedMessage: 'This lane has been closed. Open a new one from the panel if you still need help.',
+    openCooldownMinutes: 30,
+    inactiveCloseHours: 48,
+    categoryLogChannels: {
+      support: '1511637386080161792',
+      scanner: '1511637386080161792',
+      payments: '1511637484185063475',
+    },
     panels: null,
     categoryWelcomeMessages: {
       support:
@@ -66,6 +73,21 @@ module.exports = {
   },
   moderation: {
     muteDurationMinutes: 10,
+  },
+  channels: {
+    repChannelId: '1511488413327691816',
+  },
+  license: {
+    siteUrl: 'https://virello-secure.pages.dev/',
+    welcomeDm:
+      '**Access granted.** Your VIRELLO license is active.\n\n**Plan:** {plan}\n**Valid until:** {expires}\n\nSite: {site}\nUse `/mylicense` to check status anytime.',
+    expiryWarningDays: [7, 3, 1],
+  },
+  scanner: {
+    status: 'operational',
+    statusMessage: 'All scanner systems are operational.',
+    statusUpdatedAt: null,
+    statusUpdatedBy: null,
   },
   embeds: {
     color: 0xd40000,
