@@ -1,5 +1,6 @@
 const store = require('../config/store');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { trySendUserDm } = require('../utils/dm');
 const { getPlan, addMonthsMs, formatPlanLabel, SITE_URL } = require('../constants/plans');
 
 function licenseKey(guildId, userId) {
@@ -100,29 +101,7 @@ async function sendWelcomeDm(guild, userId, license, plan) {
   );
 
   const payload = { embeds: [embed], components: [row] };
-
-  const member = await guild.members.fetch(userId).catch(() => null);
-  if (member) {
-    try {
-      await member.send(payload);
-      return { ok: true };
-    } catch (err) {
-      console.warn(`Welcome DM (member) failed for ${userId}:`, err.message);
-    }
-  }
-
-  try {
-    const user = await guild.client.users.fetch(userId);
-    await user.send(payload);
-    return { ok: true };
-  } catch (err) {
-    console.warn(`Welcome DM (user) failed for ${userId}:`, err.message);
-    return {
-      ok: false,
-      error:
-        'Could not send a DM — enable **Direct Messages** from server members in Privacy & Safety, or message the bot first.',
-    };
-  }
+  return trySendUserDm(guild.client, userId, payload);
 }
 
 async function sendExpiryWarningDm(user, guildId, license, daysLeft) {
@@ -148,20 +127,35 @@ async function sendExpiredDm(user, license) {
   await user.send({ content: text }).catch(() => null);
 }
 
-async function removePurchaserRole(guild, userId) {
+async function revokeLicense(guild, userId, staffId, reason = null) {
+  const license = getLicense(guild.id, userId);
+  if (!license) {
+    return { error: 'That user has no license record.' };
+  }
+
+  license.expired = true;
+  license.expiredAt = Date.now();
+  license.revokedBy = staffId;
+  license.revokeReason = reason;
+  store.setLicense(guild.id, userId, license);
+
+  await removePurchaserRole(guild, userId, 'License revoked by staff');
+  return { ok: true, license };
+}
+
+async function removePurchaserRole(guild, userId, auditReason = 'License expired') {
   const config = store.getGuild(guild.id);
   if (!config.roles.purchaserRoleId) return;
   const member = await guild.members.fetch(userId).catch(() => null);
   if (!member) return;
-  await member.roles
-    .remove(config.roles.purchaserRoleId, 'License expired')
-    .catch(() => null);
+  await member.roles.remove(config.roles.purchaserRoleId, auditReason).catch(() => null);
 }
 
 module.exports = {
   getLicense,
   grantLicense,
   markLicenseExpired,
+  revokeLicense,
   licenseStatus,
   sendWelcomeDm,
   sendExpiryWarningDm,

@@ -91,6 +91,11 @@ module.exports = {
     statusUpdatedAt: null,
     statusUpdatedBy: null,
   },
+  onJoin: {
+    welcomeDmEnabled: true,
+    welcomeDm:
+      'Welcome to **VIRELLO**, {user}! Browse the server, read the rules, and use the **Purchase** panel when you\'re ready to buy.\n\nWebsite: {site}',
+  },
   embeds: {
     color: 0xd40000,
     footer: 'VIRELLO',

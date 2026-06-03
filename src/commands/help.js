@@ -13,6 +13,8 @@ const COMMAND_HELP = {
     '`/who` — Learn what VIRELLO does and open the website.',
     '`/price` — View the current license plans.',
     '`/status set` / `/status post` — Update and publish scanner status.',
+    '`/license revoke` — End a buyer\'s license and remove their role.',
+    '`/license check` — View a user\'s license record.',
     '`/ticket approve` — Approve payment, grant role, and start license.',
     '`/ticket list` / `/ticket stats` — Open ticket queue.',
     '`/ticket panel` — Post Purchase, Support, or Renewal panel.',

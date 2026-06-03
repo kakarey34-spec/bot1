@@ -304,7 +304,6 @@ async function createTicket(guild, member, categoryId = 'payments') {
     store.setTicket(channel.id, ticketData);
 
     await sendTicketOpeningMessages(channel, guild, member, ticketData, config);
-    await ticketLog.logTicketOpened(guild, channel, ticketData, member);
 
     return { channel, ticketData };
   } finally {
@@ -336,7 +335,6 @@ async function selectPlan(channel, userId, planId) {
     components: paymentMethodRow(enabledMethods),
   });
 
-  await ticketLog.logTicketPlanSelected(channel.guild, ticket, channel.id, planId);
   return { ok: true };
 }
 
@@ -421,7 +419,6 @@ async function handleProofMessage(message) {
     components: staffApprovalRow(message.channel.id),
   });
 
-  await ticketLog.logTicketAwaitingApproval(message.guild, ticket, message.channel.id);
   return true;
 }
 
@@ -497,7 +494,6 @@ async function approvePayment(guild, channelId, staffMember) {
     }
   }
 
-  await ticketLog.logTicketApproved(guild, ticket, channelId, staffMember);
   store.clearTicketCooldown(guild.id, ticket.userId);
 
   return { ok: true, member, license: licenseResult.license };
@@ -527,7 +523,6 @@ async function denyPayment(guild, channelId, staffMember, reason = null) {
     applyPurchaseCooldown(guild.id, ticket.userId, 'denied');
   }
 
-  await ticketLog.logTicketDenied(guild, ticket, channelId, staffMember, reason);
   return { ok: true };
 }
 
@@ -599,9 +594,21 @@ async function buildTicketTranscript(channel) {
   const buffer = Buffer.from(`${header}${body || '[no messages found]'}\n`, 'utf8');
   const safeName = channel.name.replace(/[^a-z0-9-]/gi, '-').slice(0, 80) || 'ticket';
 
-  return new AttachmentBuilder(buffer, {
+  const attachment = new AttachmentBuilder(buffer, {
     name: `${safeName}-${channel.id}-transcript.txt`,
   });
+
+  const previewLines = newestLast.slice(-8).map((msg) => {
+    const tag = msg.author?.username || 'unknown';
+    const text = (msg.content || '[attachment/embed]').slice(0, 120);
+    return `${tag}: ${text}`;
+  });
+
+  return {
+    attachment,
+    messageCount: newestLast.length,
+    preview: previewLines.join('\n') || '[no messages]',
+  };
 }
 
 function getTicketStats(guildId) {
