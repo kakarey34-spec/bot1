@@ -1,5 +1,9 @@
+const { EmbedBuilder } = require('discord.js');
 const store = require('../config/store');
 const { getPlan } = require('../constants/plans');
+const { getBrandColor, brandFooter, withLogoPayload } = require('../utils/brand');
+
+const PROMO_PING_ROLE_ID = '1511981854951997461';
 
 const PROMO_TYPES = {
   extra_days: 'extra_days',
@@ -255,6 +259,34 @@ function resolveTicketPromo(guildId, ticket) {
   return { promo: validated.promo };
 }
 
+function buildPromoAnnouncementEmbed(guildId, promo) {
+  const embed = new EmbedBuilder()
+    .setColor(getBrandColor())
+    .setTitle('◆ New promo code')
+    .setDescription(`Use code **\`${promo.code}\`** in your purchase ticket or with \`/promo apply\`.`)
+    .addFields(
+      { name: 'Offer', value: promoLabel(promo), inline: true },
+      { name: 'Details', value: formatPromoLimits(promo), inline: false }
+    )
+    .setFooter(brandFooter(guildId))
+    .setTimestamp();
+
+  if (promo.note) {
+    embed.addFields({ name: 'Staff note', value: promo.note, inline: false });
+  }
+
+  return embed;
+}
+
+async function announcePromoCreated(channel, guildId, promo) {
+  const payload = withLogoPayload([buildPromoAnnouncementEmbed(guildId, promo)]);
+  return channel.send({
+    content: `<@&${PROMO_PING_ROLE_ID}>`,
+    ...payload,
+    allowedMentions: { roles: [PROMO_PING_ROLE_ID] },
+  });
+}
+
 module.exports = {
   PROMO_TYPES,
   normalizeCode,
@@ -275,4 +307,7 @@ module.exports = {
   syncTicketPricing,
   buildAmountDueLines,
   resolveTicketPromo,
+  buildPromoAnnouncementEmbed,
+  announcePromoCreated,
+  PROMO_PING_ROLE_ID,
 };

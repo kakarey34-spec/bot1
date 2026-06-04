@@ -94,11 +94,9 @@ module.exports = {
       }
 
       const p = result.promo;
+      await promoService.announcePromoCreated(interaction.channel, interaction.guild.id, p);
       return interaction.reply({
-        content: [
-          `Created promo **${p.code}** — ${promoService.promoLabel(p)}`,
-          promoService.formatPromoLimits(p),
-        ].join('\n'),
+        content: `Created promo **${p.code}** — ${promoService.promoLabel(p)}. Announcement posted in this channel.`,
         ephemeral: true,
       });
     }

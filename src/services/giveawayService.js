@@ -10,6 +10,7 @@ const { formatDuration } = require('../utils/parseDuration');
 
 const ENTER_PREFIX = 'giveaway_enter:';
 const MAX_WINNERS = 20;
+const GIVEAWAY_PING_ROLE_ID = '1511978380248092883';
 
 function enterButton(messageId, disabled = false) {
   return new ActionRowBuilder().addComponents(
@@ -272,8 +273,10 @@ async function startGiveaway(interaction, opts) {
   };
 
   const message = await channel.send({
+    content: `<@&${GIVEAWAY_PING_ROLE_ID}>`,
     embeds: [buildGiveawayEmbed({ ...preview, messageId: 'pending' })],
     components: [enterButton('pending')],
+    allowedMentions: { roles: [GIVEAWAY_PING_ROLE_ID] },
   });
 
   const giveaway = {
