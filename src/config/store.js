@@ -7,6 +7,7 @@ const CONFIG_PATH = path.join(DATA_DIR, 'guild-config.json');
 const TICKETS_PATH = path.join(DATA_DIR, 'active-tickets.json');
 const LICENSES_PATH = path.join(DATA_DIR, 'licenses.json');
 const COOLDOWNS_PATH = path.join(DATA_DIR, 'ticket-cooldowns.json');
+const GIVEAWAYS_PATH = path.join(DATA_DIR, 'giveaways.json');
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) {
@@ -58,6 +59,7 @@ class ConfigStore {
     this._tickets = {};
     this._licenses = {};
     this._cooldowns = {};
+    this._giveaways = {};
   }
 
   async init() {
@@ -74,6 +76,7 @@ class ConfigStore {
       this._tickets = data.tickets;
       this._licenses = data.licenses;
       this._cooldowns = data.cooldowns;
+      this._giveaways = data.giveaways;
       this._pg = pg;
       console.log(
         imported
@@ -85,6 +88,7 @@ class ConfigStore {
       this._tickets = readJson(TICKETS_PATH, {});
       this._licenses = readJson(LICENSES_PATH, {});
       this._cooldowns = readJson(COOLDOWNS_PATH, {});
+      this._giveaways = readJson(GIVEAWAYS_PATH, {});
       console.log('Storage: JSON files in data/ (set DATABASE_URL for PostgreSQL)');
     }
 
@@ -231,6 +235,35 @@ class ConfigStore {
     if (!ticket) return;
     ticket.lastActivityAt = Date.now();
     this.setTicket(channelId, ticket);
+  }
+
+  getGiveaway(messageId) {
+    return this._giveaways[messageId] || null;
+  }
+
+  setGiveaway(messageId, data) {
+    this._giveaways[messageId] = data;
+    if (this._usePg) {
+      this._pg.persist(this._pg.upsertGiveaway(messageId, data), 'setGiveaway');
+    } else {
+      writeJson(GIVEAWAYS_PATH, this._giveaways);
+    }
+  }
+
+  deleteGiveaway(messageId) {
+    delete this._giveaways[messageId];
+    if (this._usePg) {
+      this._pg.persist(this._pg.deleteGiveaway(messageId), 'deleteGiveaway');
+    } else {
+      writeJson(GIVEAWAYS_PATH, this._giveaways);
+    }
+  }
+
+  listActiveGiveaways() {
+    const now = Date.now();
+    return Object.values(this._giveaways).filter(
+      (g) => g.status === 'active' && g.endsAt > now
+    );
   }
 }
 

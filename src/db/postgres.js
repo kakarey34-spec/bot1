@@ -7,6 +7,7 @@ const CONFIG_PATH = path.join(DATA_DIR, 'guild-config.json');
 const TICKETS_PATH = path.join(DATA_DIR, 'active-tickets.json');
 const LICENSES_PATH = path.join(DATA_DIR, 'licenses.json');
 const COOLDOWNS_PATH = path.join(DATA_DIR, 'ticket-cooldowns.json');
+const GIVEAWAYS_PATH = path.join(DATA_DIR, 'giveaways.json');
 
 let pool = null;
 
@@ -50,6 +51,12 @@ async function initSchema() {
       data JSONB NOT NULL,
       PRIMARY KEY (guild_id, user_id)
     );
+    CREATE TABLE IF NOT EXISTS giveaways (
+      message_id TEXT PRIMARY KEY,
+      guild_id TEXT NOT NULL,
+      data JSONB NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS giveaways_guild_id_idx ON giveaways (guild_id);
   `);
 }
 
@@ -69,11 +76,12 @@ async function isEmpty() {
 
 async function loadAll() {
   const p = getPool();
-  const [guilds, tickets, licenses, cooldowns] = await Promise.all([
+  const [guilds, tickets, licenses, cooldowns, giveaways] = await Promise.all([
     p.query('SELECT guild_id, config FROM guild_config'),
     p.query('SELECT channel_id, data FROM tickets'),
     p.query('SELECT guild_id, user_id, data FROM licenses'),
     p.query('SELECT guild_id, user_id, data FROM ticket_cooldowns'),
+    p.query('SELECT message_id, data FROM giveaways'),
   ]);
 
   const cache = {};
@@ -98,7 +106,18 @@ async function loadAll() {
     cooldownsMap[row.guild_id][row.user_id] = row.data;
   }
 
-  return { cache, tickets: ticketsMap, licenses: licensesMap, cooldowns: cooldownsMap };
+  const giveawaysMap = {};
+  for (const row of giveaways.rows) {
+    giveawaysMap[row.message_id] = row.data;
+  }
+
+  return {
+    cache,
+    tickets: ticketsMap,
+    licenses: licensesMap,
+    cooldowns: cooldownsMap,
+    giveaways: giveawaysMap,
+  };
 }
 
 async function saveAllGuildConfig(cache) {
@@ -147,7 +166,19 @@ async function deleteCooldown(guildId, userId) {
   ]);
 }
 
-async function importJsonSnapshot(cache, tickets, licenses, cooldowns) {
+async function upsertGiveaway(messageId, data) {
+  await getPool().query(
+    `INSERT INTO giveaways (message_id, guild_id, data) VALUES ($1, $2, $3::jsonb)
+     ON CONFLICT (message_id) DO UPDATE SET guild_id = EXCLUDED.guild_id, data = EXCLUDED.data`,
+    [messageId, data.guildId, JSON.stringify(data)]
+  );
+}
+
+async function deleteGiveaway(messageId) {
+  await getPool().query('DELETE FROM giveaways WHERE message_id = $1', [messageId]);
+}
+
+async function importJsonSnapshot(cache, tickets, licenses, cooldowns, giveaways) {
   const p = getPool();
   const client = await p.connect();
   try {
@@ -184,6 +215,13 @@ async function importJsonSnapshot(cache, tickets, licenses, cooldowns) {
         );
       }
     }
+    for (const [messageId, data] of Object.entries(giveaways)) {
+      await client.query(
+        `INSERT INTO giveaways (message_id, guild_id, data) VALUES ($1, $2, $3::jsonb)
+         ON CONFLICT (message_id) DO NOTHING`,
+        [messageId, data.guildId, JSON.stringify(data)]
+      );
+    }
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');
@@ -200,16 +238,18 @@ async function migrateFromJsonIfEmpty() {
   const tickets = readJsonFile(TICKETS_PATH, {});
   const licenses = readJsonFile(LICENSES_PATH, {});
   const cooldowns = readJsonFile(COOLDOWNS_PATH, {});
+  const giveaways = readJsonFile(GIVEAWAYS_PATH, {});
 
   const hasData =
     Object.keys(cache).length > 0 ||
     Object.keys(tickets).length > 0 ||
     Object.keys(licenses).length > 0 ||
-    Object.keys(cooldowns).length > 0;
+    Object.keys(cooldowns).length > 0 ||
+    Object.keys(giveaways).length > 0;
 
   if (!hasData) return false;
 
-  await importJsonSnapshot(cache, tickets, licenses, cooldowns);
+  await importJsonSnapshot(cache, tickets, licenses, cooldowns, giveaways);
   console.log('Imported existing data/*.json into PostgreSQL.');
   return true;
 }
@@ -228,6 +268,8 @@ module.exports = {
   upsertLicense,
   upsertCooldown,
   deleteCooldown,
+  upsertGiveaway,
+  deleteGiveaway,
   migrateFromJsonIfEmpty,
   persist,
 };

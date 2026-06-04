@@ -10,6 +10,7 @@ const { parseTicketOpenCategory } = require('../utils/ticketPanel');
 const { canUse, LEVELS } = require('../utils/permissions');
 const store = require('../config/store');
 const ticketManager = require('../services/ticketManager');
+const { isEnterButton, handleEnter } = require('../services/giveawayService');
 
 const PAYMENT_KEY_MAP = {
   [PAYMENT_IDS.paypal]: 'paypal',
@@ -131,6 +132,10 @@ module.exports = {
       if (!interaction.isButton()) return;
 
       const customId = interaction.customId;
+
+      if (isEnterButton(customId)) {
+        return handleEnter(interaction);
+      }
 
       const ticketCategory = parseTicketOpenCategory(customId);
       if (ticketCategory) {

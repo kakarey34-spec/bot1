@@ -29,6 +29,9 @@ const COMMAND_HELP = {
   admin: [
     '`/say` — Send a message as the bot.',
     '`/embed` — Send a custom embed.',
+    '`/giveaway start` — Start a giveaway (title, prize, duration, winners).',
+    '`/giveaway end` — End early and pick winners (message ID).',
+    '`/giveaway list` — Active giveaways in this server.',
     '`/ticket panel` — Post the **Purchase** or **Support** panel (`type` option).',
   ],
   config: [

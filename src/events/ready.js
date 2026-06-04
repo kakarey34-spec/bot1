@@ -1,5 +1,6 @@
 const { ActivityType } = require('discord.js');
 const { startSchedulers } = require('../services/ticketScheduler');
+const { startGiveawayScheduler } = require('../services/giveawayScheduler');
 
 module.exports = {
   name: 'clientReady',
@@ -12,6 +13,7 @@ module.exports = {
     }
 
     startSchedulers(client);
+    startGiveawayScheduler(client);
     client.user.setActivity('VIRELLO · /help', { type: ActivityType.Watching });
   },
 };
