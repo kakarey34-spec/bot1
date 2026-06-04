@@ -96,6 +96,11 @@ function buildTicketWelcome(guildId, category, member) {
         inline: false,
       },
       {
+        name: 'Promo code',
+        value: 'After you pick a payment method, click **Apply promo code** (or `/promo apply code:YOURCODE`).',
+        inline: false,
+      },
+      {
         name: 'After paying',
         value: 'Press **Payment sent** or type `done`, then upload your proof (screenshot or transaction ID).',
         inline: false,
@@ -148,13 +153,30 @@ function buildTicketWelcome(guildId, category, member) {
   return { content: null, ...withLogoPayload([embed]) };
 }
 
-function buildPaymentMethodEmbed(guildId, method, methodKey) {
+function buildPaymentMethodEmbed(guildId, method, methodKey, { plan, promo, pricing, amountLines } = {}) {
   const embed = virelloEmbed(guildId, {
     title: `◆ ${method.label || methodKey}`,
     description: method.details || '_Payment details not configured — contact an administrator._',
-  }).addFields({
+  });
+
+  if (amountLines) {
+    embed.addFields({
+      name: 'Your total',
+      value: amountLines,
+      inline: false,
+    });
+  } else if (plan) {
+    embed.addFields({
+      name: 'Amount to send',
+      value: `**${plan.price}**${plan.term}`,
+      inline: false,
+    });
+  }
+
+  embed.addFields({
     name: 'When finished',
-    value: 'Click **Payment sent** below (or type `done`), then upload proof in this channel.',
+    value:
+      'Use **Apply promo code** if you have one, then click **Payment sent** (or type `done`) and upload proof.',
     inline: false,
   });
 
@@ -191,6 +213,20 @@ function buildStaffReviewEmbed(guildId, ticket, proofUrl) {
     { name: 'Method', value: `\`${ticket.paymentMethod || 'unknown'}\``, inline: true },
     { name: 'Proof', value: `[View message](${proofUrl})`, inline: true },
   ];
+
+  if (ticket.promoCode) {
+    fields.push({
+      name: 'Promo',
+      value: `\`${ticket.promoCode}\`${ticket.amountDue != null ? ` — due **$${Number(ticket.amountDue).toFixed(2)}**` : ''}`,
+      inline: true,
+    });
+  } else if (ticket.amountDue != null) {
+    fields.push({
+      name: 'Amount due',
+      value: `**$${Number(ticket.amountDue).toFixed(2)}**`,
+      inline: true,
+    });
+  }
 
   if (ticket.claimedBy) {
     fields.push({

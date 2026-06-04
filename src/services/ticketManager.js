@@ -14,10 +14,11 @@ const {
 const {
   planSelectionRow,
   paymentMethodRow,
-  paymentDoneRow,
+  paymentActionRows,
   staffApprovalRow,
 } = require('../utils/components');
 const licenseService = require('./licenseService');
+const promoService = require('./promoService');
 const { upsertBuyerRegistry } = require('../utils/buyerRegistry');
 const ticketLog = require('../utils/ticketLog');
 const { getPlan } = require('../constants/plans');
@@ -352,12 +353,91 @@ async function selectPlan(channel, userId, planId) {
   store.setTicket(channel.id, ticket);
 
   const enabledMethods = Object.entries(config.payments).filter(([, m]) => m.enabled !== false);
+  let promo = null;
+  if (ticket.promoCode) {
+    const validated = promoService.validatePromo(channel.guild.id, ticket.promoCode);
+    if (validated.ok) promo = validated.promo;
+  }
+  const planLine = promoService.formatPlanLineWithPromo(plan, promo);
   await channel.send({
-    content: `**${plan.label}** selected (${plan.price}${plan.term}). Choose your payment method:`,
+    content: `${planLine}\n\nChoose your payment method:`,
     components: paymentMethodRow(enabledMethods),
   });
 
   return { ok: true };
+}
+
+async function sendPaymentStep(channel, ticket) {
+  const plan = getPlan(ticket.planId);
+  const config = store.getGuild(channel.guild.id);
+  const method = config.payments[ticket.paymentMethod];
+  if (!method) return;
+
+  const resolved = promoService.resolveTicketPromo(channel.guild.id, ticket);
+  const promo = resolved.promo || null;
+  const pricing = promoService.syncTicketPricing(ticket, plan, promo);
+  store.setTicket(channel.id, ticket);
+
+  const amountLines = promoService.buildAmountDueLines(plan, promo, pricing);
+
+  await channel.send({
+    ...buildPaymentMethodEmbed(channel.guild.id, method, ticket.paymentMethod, {
+      plan,
+      promo,
+      pricing,
+      amountLines,
+    }),
+    components: paymentActionRows(channel.id),
+  });
+}
+
+async function applyPromoCodeToTicket(channel, userId, code) {
+  const ticket = store.getTicket(channel.id);
+  if (!ticket || ticket.userId !== userId) {
+    return { error: 'This ticket does not belong to you or is invalid.' };
+  }
+  if (ticket.stage !== STAGES.AWAITING_PAYMENT) {
+    return {
+      error: 'Select a payment method first, then apply your promo code before marking payment sent.',
+    };
+  }
+  if (!ticket.planId || !ticket.paymentMethod) {
+    return { error: 'Select a plan and payment method before applying a promo code.' };
+  }
+
+  const validated = promoService.validatePromo(channel.guild.id, code);
+  if (validated.error) return { error: validated.error };
+
+  const plan = getPlan(ticket.planId);
+  promoService.applyPromoToTicket(ticket, validated.promo);
+  const pricing = promoService.syncTicketPricing(ticket, plan, validated.promo);
+  ticket.lastActivityAt = Date.now();
+  store.setTicket(channel.id, ticket);
+
+  const amountLines = promoService.buildAmountDueLines(plan, validated.promo, pricing);
+  const { EmbedBuilder } = require('discord.js');
+  const { getBrandColor } = require('../utils/brand');
+
+  await channel.send({
+    embeds: [
+      new EmbedBuilder()
+        .setColor(getBrandColor())
+        .setTitle('◆ Promo code applied')
+        .setDescription(
+          [
+            `Code **${validated.promo.code}** (${promoService.promoLabel(validated.promo)}) is active on this order.`,
+            '',
+            amountLines,
+            '',
+            'Send exactly that amount, then click **Payment sent**.',
+          ].join('\n')
+        )
+        .setTimestamp(),
+    ],
+    components: paymentActionRows(channel.id),
+  });
+
+  return { ok: true, promo: validated.promo, pricing };
 }
 
 async function selectPaymentMethod(channel, userId, methodKey) {
@@ -383,10 +463,7 @@ async function selectPaymentMethod(channel, userId, methodKey) {
   ticket.lastActivityAt = Date.now();
   store.setTicket(channel.id, ticket);
 
-  await channel.send({
-    ...buildPaymentMethodEmbed(channel.guild.id, method, methodKey),
-    components: paymentDoneRow(),
-  });
+  await sendPaymentStep(channel, ticket);
 
   return { ok: true };
 }
@@ -503,12 +580,28 @@ async function approvePayment(guild, channelId, staffMember) {
   });
 
   if (licenseResult.ok) {
-    await upsertBuyerRegistry(guild, ticket.userId, licenseResult.license);
+    let license = licenseResult.license;
+    if (ticket.promoCode) {
+      const validated = promoService.validatePromo(guild.id, ticket.promoCode);
+      if (validated.ok) {
+        promoService.applyPromoToLicense(license, validated.promo);
+        store.setLicense(guild.id, ticket.userId, license);
+        promoService.consumePromo(guild.id, ticket.promoCode);
+        await channel
+          .send({
+            content: `🎟️ Promo **${validated.promo.code}** applied for <@${ticket.userId}>: **${promoService.promoLabel(validated.promo)}**`,
+            allowedMentions: { users: [ticket.userId] },
+          })
+          .catch(() => null);
+      }
+    }
+
+    await upsertBuyerRegistry(guild, ticket.userId, license);
 
     const dmResult = await licenseService.sendWelcomeDm(
       guild,
       ticket.userId,
-      licenseResult.license,
+      license,
       licenseResult.plan
     );
 
@@ -709,6 +802,7 @@ module.exports = {
   createTicket,
   selectPlan,
   selectPaymentMethod,
+  applyPromoCodeToTicket,
   markPaymentDone,
   handleProofMessage,
   handleDoneKeyword,

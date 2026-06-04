@@ -5,6 +5,7 @@ const store = require('../config/store');
 const {
   startGiveaway,
   endGiveaway,
+  rerollGiveaway,
   MAX_WINNERS,
 } = require('../services/giveawayService');
 
@@ -61,6 +62,23 @@ module.exports = {
     )
     .addSubcommand((sub) =>
       sub.setName('list').setDescription('List active giveaways in this server')
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('reroll')
+        .setDescription('Replace an invalid winner with a new random entrant')
+        .addStringOption((opt) =>
+          opt
+            .setName('message_id')
+            .setDescription('Giveaway message ID')
+            .setRequired(true)
+        )
+        .addUserOption((opt) =>
+          opt
+            .setName('user')
+            .setDescription('Winner to replace')
+            .setRequired(true)
+        )
     ),
   permissionLevel: LEVELS.admin,
   permissionLabel: 'admin',
@@ -124,6 +142,21 @@ module.exports = {
 
       return interaction.editReply({
         content: `Giveaway ended. Winner(s): ${winners}`,
+      });
+    }
+
+    if (sub === 'reroll') {
+      const messageId = interaction.options.getString('message_id').trim();
+      const user = interaction.options.getUser('user');
+      await interaction.deferReply({ ephemeral: true });
+
+      const result = await rerollGiveaway(client, messageId, user.id);
+      if (result.error) {
+        return interaction.editReply({ content: result.error });
+      }
+
+      return interaction.editReply({
+        content: `Rerolled: <@${result.replaced}> → <@${result.newWinner}>. Announcement posted in the giveaway channel.`,
       });
     }
 

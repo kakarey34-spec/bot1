@@ -60,7 +60,7 @@ async function processLicenses(client) {
         const updated = licenseService.markLicenseExpired(guild.id, userId);
         const user = await client.users.fetch(userId).catch(() => null);
         if (user && updated) {
-          await licenseService.sendExpiredDm(user, updated);
+          await licenseService.sendExpiredDm(client, user, guild.id, updated);
           await upsertBuyerRegistry(guild, userId, updated);
         }
         continue;
@@ -74,7 +74,7 @@ async function processLicenses(client) {
         if ((license.warningsSent || []).includes(key)) continue;
 
         const user = await client.users.fetch(userId).catch(() => null);
-        if (user) await licenseService.sendExpiryWarningDm(user, guild.id, license, days);
+        if (user) await licenseService.sendExpiryWarningDm(client, user, guild.id, license, days);
 
         license.warningsSent = [...(license.warningsSent || []), key];
         store.setLicense(guild.id, userId, license);

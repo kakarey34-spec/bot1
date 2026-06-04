@@ -1,6 +1,7 @@
 const store = require('../config/store');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { trySendUserDm } = require('../utils/dm');
+const { RENEWAL_OPEN_PREFIX } = require('../utils/components');
 const { getPlan, addMonthsMs, formatPlanLabel, SITE_URL } = require('../constants/plans');
 
 function licenseKey(guildId, userId) {
@@ -104,27 +105,62 @@ async function sendWelcomeDm(guild, userId, license, plan) {
   return trySendUserDm(guild.client, userId, payload);
 }
 
-async function sendExpiryWarningDm(user, guildId, license, daysLeft) {
-  const plan = getPlan(license.planId);
-  const text = [
-    '**VIRELLO license reminder**',
-    `Your **${plan?.label || 'license'}** expires in **${daysLeft} day(s)**.`,
-    `Expiry: <t:${Math.floor(license.expiresAt / 1000)}:F>`,
-    'Renew via the **Renewal** panel or open a new purchase lane before access is removed.',
-  ].join('\n');
-
-  await user.send({ content: text }).catch(() => null);
+function renewalDmButton(guildId) {
+  const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`${RENEWAL_OPEN_PREFIX}${guildId}`)
+      .setLabel('Open renewal lane')
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji('🔄')
+  );
 }
 
-async function sendExpiredDm(user, license) {
+async function sendExpiryWarningDm(client, user, guildId, license, daysLeft) {
   const plan = getPlan(license.planId);
-  const text = [
-    '**VIRELLO license expired**',
-    `Your **${plan?.label || 'license'}** has ended and buyer access was removed.`,
-    'Open a **Renewal** or **Purchase** panel in the server to buy again.',
-  ].join('\n');
+  const config = store.getGuild(guildId);
+  const siteUrl = config.license?.siteUrl || SITE_URL;
+  const expiresUnix = Math.floor(license.expiresAt / 1000);
 
-  await user.send({ content: text }).catch(() => null);
+  const embed = new EmbedBuilder()
+    .setColor(0xf59e0b)
+    .setTitle('◆ VIRELLO — License expiring soon')
+    .setDescription(
+      `Your **${plan?.label || 'license'}** expires in **${daysLeft} day(s)**.\n\nRenew now to avoid losing buyer access and scanner privileges.`
+    )
+    .addFields(
+      { name: 'Expires', value: `<t:${expiresUnix}:F>`, inline: true },
+      { name: 'Plan', value: plan?.label || license.planId, inline: true },
+      { name: 'Website', value: siteUrl, inline: false }
+    )
+    .setFooter({ text: 'Use the button below to open a private renewal lane' })
+    .setTimestamp();
+
+  const row = renewalDmButton(guildId);
+  const linkRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setLabel('Open VIRELLO').setStyle(ButtonStyle.Link).setURL(siteUrl)
+  );
+
+  return trySendUserDm(client, user.id, {
+    embeds: [embed],
+    components: [row, linkRow],
+  });
+}
+
+async function sendExpiredDm(client, user, guildId, license) {
+  const plan = getPlan(license.planId);
+  const embed = new EmbedBuilder()
+    .setColor(0xdc2626)
+    .setTitle('◆ VIRELLO — License expired')
+    .setDescription(
+      `Your **${plan?.label || 'license'}** has ended and buyer access was removed.\n\nRenew to restore access.`
+    )
+    .setTimestamp();
+
+  return trySendUserDm(client, user.id, {
+    embeds: [embed],
+    components: [renewalDmButton(guildId)],
+  });
 }
 
 async function revokeLicense(guild, userId, staffId, reason = null) {
@@ -151,13 +187,26 @@ async function addPurchaserRole(guild, userId, auditReason = 'License granted') 
   await member.roles.add(config.roles.purchaserRoleId, auditReason).catch(() => null);
 }
 
-async function grantLicenseToUser(guild, userId, planId, staffId, { notify = true } = {}) {
+async function grantLicenseToUser(
+  guild,
+  userId,
+  planId,
+  staffId,
+  { notify = true, promo = null } = {}
+) {
   const result = grantLicense(guild.id, userId, planId, {
     approvedBy: staffId,
     approvedAt: Date.now(),
     grantedByStaff: true,
   });
   if (result.error) return result;
+
+  if (promo) {
+    const promoService = require('./promoService');
+    promoService.applyPromoToLicense(result.license, promo);
+    store.setLicense(guild.id, userId, result.license);
+    promoService.consumePromo(guild.id, promo.code);
+  }
 
   await addPurchaserRole(guild, userId, 'License granted by staff');
   if (notify) {

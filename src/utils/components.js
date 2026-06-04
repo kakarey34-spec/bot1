@@ -14,7 +14,10 @@ const TICKET_IDS = {
   approve: 'ticket_approve',
   deny: 'ticket_deny',
   claim: 'ticket_claim',
+  promo: 'ticket_promo',
 };
+
+const RENEWAL_OPEN_PREFIX = 'renewal_open:';
 
 const PLAN_IDS = {
   monthly: 'plan_monthly',
@@ -70,16 +73,25 @@ function paymentMethodRow(enabledMethods) {
   return rows;
 }
 
-function paymentDoneRow() {
+function paymentActionRows(channelId) {
   return [
     new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(TICKET_IDS.paymentDone)
         .setLabel('Payment sent')
         .setEmoji('✅')
-        .setStyle(ButtonStyle.Success)
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(`${TICKET_IDS.promo}:${channelId}`)
+        .setLabel('Apply promo code')
+        .setEmoji('🎟️')
+        .setStyle(ButtonStyle.Secondary)
     ),
   ];
+}
+
+function paymentDoneRow() {
+  return paymentActionRows('0');
 }
 
 function staffApprovalRow(ticketChannelId, ticket = null) {
@@ -127,10 +139,12 @@ function staffApprovalRow(ticketChannelId, ticket = null) {
 module.exports = {
   PAYMENT_IDS,
   TICKET_IDS,
+  RENEWAL_OPEN_PREFIX,
   PLAN_IDS,
   PLAN_KEY_MAP,
   planSelectionRow,
   paymentMethodRow,
   paymentDoneRow,
+  paymentActionRows,
   staffApprovalRow,
 };

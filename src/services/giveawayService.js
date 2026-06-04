@@ -89,10 +89,22 @@ async function refreshGiveawayMessage(client, giveaway) {
   });
 }
 
+async function getValidEntrants(guild, giveaway) {
+  const validEntrants = [];
+  for (const userId of giveaway.entrants || []) {
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (member && !member.user.bot) validEntrants.push(userId);
+  }
+  return validEntrants;
+}
+
 async function endGiveaway(client, messageId, { force = false, endedBy = null } = {}) {
   const giveaway = store.getGiveaway(messageId);
-  if (!giveaway || giveaway.status === 'ended') {
-    return { error: 'Giveaway not found or already ended.' };
+  if (!giveaway) {
+    return { error: 'Giveaway not found.' };
+  }
+  if (giveaway.status === 'ended') {
+    return { error: 'Giveaway already ended. Use `/giveaway reroll` to replace invalid winners.' };
   }
   if (!force && Date.now() < giveaway.endsAt) {
     return { error: 'This giveaway is still running.' };
@@ -104,12 +116,7 @@ async function endGiveaway(client, messageId, { force = false, endedBy = null } 
     return { error: 'Guild not found.' };
   }
 
-  const validEntrants = [];
-  for (const userId of giveaway.entrants || []) {
-    const member = await guild.members.fetch(userId).catch(() => null);
-    if (member && !member.user.bot) validEntrants.push(userId);
-  }
-
+  const validEntrants = await getValidEntrants(guild, giveaway);
   const winnerIds = pickWinners(validEntrants, giveaway.winnerCount);
   giveaway.status = 'ended';
   giveaway.endedAt = Date.now();
@@ -138,8 +145,55 @@ async function endGiveaway(client, messageId, { force = false, endedBy = null } 
     }
   }
 
-  store.deleteGiveaway(messageId);
   return { ok: true, winnerIds, giveaway };
+}
+
+async function rerollGiveaway(client, messageId, replaceUserId) {
+  const giveaway = store.getGiveaway(messageId);
+  if (!giveaway) {
+    return { error: 'Giveaway not found. It may be too old (ended records are kept for 14 days).' };
+  }
+  if (giveaway.status !== 'ended') {
+    return { error: 'Only ended giveaways can be rerolled. End it first or wait for the timer.' };
+  }
+
+  const guild = await client.guilds.fetch(giveaway.guildId).catch(() => null);
+  if (!guild) return { error: 'Guild not found.' };
+
+  const winners = giveaway.winnerIds || [];
+  if (!replaceUserId) {
+    return { error: 'Specify the invalid winner with the `user` option.' };
+  }
+  if (!winners.includes(replaceUserId)) {
+    return { error: 'That user is not a listed winner for this giveaway.' };
+  }
+
+  const pool = (await getValidEntrants(guild, giveaway)).filter(
+    (id) => !winners.includes(id) || id === replaceUserId
+  );
+  const rerollPool = pool.filter((id) => id !== replaceUserId);
+  if (!rerollPool.length) {
+    return { error: 'No other eligible entrants to pick from.' };
+  }
+
+  const [newWinner] = pickWinners(rerollPool, 1);
+  giveaway.winnerIds = winners.map((id) => (id === replaceUserId ? newWinner : id));
+  giveaway.rerolls = [...(giveaway.rerolls || []), { from: replaceUserId, to: newWinner, at: Date.now() }];
+  store.setGiveaway(messageId, giveaway);
+
+  await refreshGiveawayMessage(client, giveaway);
+
+  const channel = await client.channels.fetch(giveaway.channelId).catch(() => null);
+  if (channel?.isTextBased()) {
+    await channel
+      .send({
+        content: `🎉 Reroll: <@${newWinner}> you won **${giveaway.prize}** — ${giveaway.title} (replacing previous winner)`,
+        allowedMentions: { users: [newWinner] },
+      })
+      .catch(() => null);
+  }
+
+  return { ok: true, newWinner, replaced: replaceUserId, giveaway };
 }
 
 async function handleEnter(interaction) {
@@ -251,6 +305,7 @@ module.exports = {
   MAX_WINNERS,
   startGiveaway,
   endGiveaway,
+  rerollGiveaway,
   handleEnter,
   isEnterButton,
   buildGiveawayEmbed,

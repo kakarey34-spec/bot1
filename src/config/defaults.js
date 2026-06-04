@@ -82,6 +82,7 @@ module.exports = {
     buyerRegistryChannelId: '1511637354887122955',
     statusChannelId: '1511840270810087474',
   },
+  promos: {},
   license: {
     siteUrl: 'https://virello-secure.pages.dev/',
     welcomeDm:

@@ -11,6 +11,7 @@ const { canUse, LEVELS } = require('../utils/permissions');
 const store = require('../config/store');
 const ticketManager = require('../services/ticketManager');
 const { isEnterButton, handleEnter } = require('../services/giveawayService');
+const { RENEWAL_OPEN_PREFIX } = require('../utils/components');
 
 const PAYMENT_KEY_MAP = {
   [PAYMENT_IDS.paypal]: 'paypal',
@@ -22,9 +23,34 @@ const PAYMENT_KEY_MAP = {
 module.exports = {
   name: 'interactionCreate',
   async execute(interaction, client) {
-    if (!interaction.guild) return;
-
     try {
+      if (interaction.isButton() && interaction.customId.startsWith(RENEWAL_OPEN_PREFIX)) {
+        const guildId = interaction.customId.slice(RENEWAL_OPEN_PREFIX.length);
+        await interaction.deferReply({ ephemeral: true });
+
+        const guild = await client.guilds.fetch(guildId).catch(() => null);
+        if (!guild) {
+          return interaction.editReply({ content: 'Server unavailable. Try again later.' });
+        }
+
+        const member = await guild.members.fetch(interaction.user.id).catch(() => null);
+        if (!member) {
+          return interaction.editReply({
+            content: 'You must be in the VIRELLO server to open a renewal lane.',
+          });
+        }
+
+        const result = await ticketManager.createTicket(guild, member, 'payments');
+        if (result.error) {
+          return interaction.editReply({ content: result.error });
+        }
+
+        return interaction.editReply({
+          content: `Your renewal lane is open: ${result.channel}`,
+        });
+      }
+
+      if (!interaction.guild) return;
       if (interaction.isAutocomplete()) {
         const command = client.commands?.get(interaction.commandName);
         if (command?.autocomplete) {
@@ -41,6 +67,30 @@ module.exports = {
       }
 
       if (interaction.isModalSubmit()) {
+        if (interaction.customId.startsWith('promo_modal:')) {
+          const channelId = interaction.customId.split(':')[1];
+          if (interaction.channelId !== channelId) {
+            return interaction.reply({
+              content: 'This promo form is no longer valid here.',
+              ephemeral: true,
+            });
+          }
+
+          const code = interaction.fields.getTextInputValue('code').trim();
+          await interaction.deferReply({ ephemeral: true });
+          const result = await ticketManager.applyPromoCodeToTicket(
+            interaction.channel,
+            interaction.user.id,
+            code
+          );
+          if (result.error) {
+            return interaction.editReply({ content: result.error });
+          }
+          return interaction.editReply({
+            content: `Promo **${result.promo.code}** applied. Check the channel for the amount you need to send.`,
+          });
+        }
+
         if (interaction.customId.startsWith('deny_modal:')) {
           if (!canUse(interaction.member, LEVELS.staff)) {
             return interaction.reply({
@@ -177,6 +227,38 @@ module.exports = {
           return interaction.reply({ content: result.error, ephemeral: true });
         }
         return interaction.reply({ content: 'Payment details sent above.', ephemeral: true });
+      }
+
+      if (customId.startsWith(`${TICKET_IDS.promo}:`)) {
+        const channelId = customId.split(':')[1];
+        if (interaction.channelId !== channelId) {
+          return interaction.reply({
+            content: 'Use the promo button in your ticket channel.',
+            ephemeral: true,
+          });
+        }
+
+        const ticket = store.getTicket(channelId);
+        if (!ticket || ticket.userId !== interaction.user.id) {
+          return interaction.reply({
+            content: 'Only the ticket owner can apply a promo code here.',
+            ephemeral: true,
+          });
+        }
+
+        const modal = new ModalBuilder()
+          .setCustomId(`promo_modal:${channelId}`)
+          .setTitle('Apply promo code');
+        const codeInput = new TextInputBuilder()
+          .setCustomId('code')
+          .setLabel('Promo code')
+          .setPlaceholder('e.g. SAVE20')
+          .setStyle(TextInputStyle.Short)
+          .setMinLength(3)
+          .setMaxLength(32)
+          .setRequired(true);
+        modal.addComponents(new ActionRowBuilder().addComponents(codeInput));
+        return interaction.showModal(modal);
       }
 
       if (customId === TICKET_IDS.paymentDone) {

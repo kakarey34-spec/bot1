@@ -100,7 +100,8 @@ Type `/` in Discord to browse commands and descriptions.
 | `/whitelist …` | Configurator | Access lists |
 | `/kick` `/ban` `/mute` `/unmute` `/clear` | Staff | Moderation |
 | `/say` `/embed` | Admin | Messaging |
-| `/giveaway start` `end` `list` | Admin | Timed giveaways with random winners |
+| `/giveaway start` `end` `reroll` `list` | Admin | Timed giveaways with random winners |
+| `/promo create` `apply` `list` | Admin / buyers | Promo codes (extra days or % off) |
 
 ## Data storage
 

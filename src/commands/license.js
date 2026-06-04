@@ -4,6 +4,7 @@ const { upsertBuyerRegistry } = require('../utils/buyerRegistry');
 const { LEVELS } = require('../utils/permissions');
 const { trySendUserDm } = require('../utils/dm');
 const { listPlans } = require('../constants/plans');
+const promoService = require('../services/promoService');
 
 const PLAN_CHOICES = listPlans().map((p) => ({ name: p.label, value: p.id }));
 
@@ -27,6 +28,9 @@ module.exports = {
         )
         .addBooleanOption((opt) =>
           opt.setName('notify').setDescription('Send welcome DM (default: yes)')
+        )
+        .addStringOption((opt) =>
+          opt.setName('promo').setDescription('Optional promo code to apply')
         )
     )
     .addSubcommand((sub) =>
@@ -135,12 +139,22 @@ module.exports = {
     if (sub === 'grant') {
       const planId = interaction.options.getString('plan');
       const notify = interaction.options.getBoolean('notify') ?? true;
+      const promoRaw = interaction.options.getString('promo');
+      let promo = null;
+      if (promoRaw) {
+        const validated = promoService.validatePromo(interaction.guild.id, promoRaw);
+        if (validated.error) {
+          return interaction.reply({ content: validated.error, ephemeral: true });
+        }
+        promo = validated.promo;
+      }
+
       const result = await licenseService.grantLicenseToUser(
         interaction.guild,
         target.id,
         planId,
         interaction.user.id,
-        { notify }
+        { notify, promo }
       );
 
       if (result.error) {
@@ -149,9 +163,10 @@ module.exports = {
 
       await upsertBuyerRegistry(interaction.guild, target.id, result.license);
       const expiresUnix = Math.floor(result.license.expiresAt / 1000);
+      const promoNote = promo ? ` Promo **${promo.code}** (${promoService.promoLabel(promo)}).` : '';
 
       return interaction.reply({
-        content: `Granted **${result.plan.label}** to **${target.tag}**. Expires <t:${expiresUnix}:F>.`,
+        content: `Granted **${result.plan.label}** to **${target.tag}**. Expires <t:${expiresUnix}:F>.${promoNote}`,
         ephemeral: true,
       });
     }

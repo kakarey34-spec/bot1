@@ -265,6 +265,15 @@ class ConfigStore {
       (g) => g.status === 'active' && g.endsAt > now
     );
   }
+
+  pruneEndedGiveaways(maxAgeMs = 14 * 24 * 60 * 60 * 1000) {
+    const cutoff = Date.now() - maxAgeMs;
+    for (const [messageId, g] of Object.entries(this._giveaways)) {
+      if (g.status === 'ended' && (g.endedAt || 0) < cutoff) {
+        this.deleteGiveaway(messageId);
+      }
+    }
+  }
 }
 
 function tryParseValue(value) {

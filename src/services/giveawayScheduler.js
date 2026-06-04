@@ -2,6 +2,7 @@ const store = require('../config/store');
 const { endGiveaway } = require('./giveawayService');
 
 async function processDueGiveaways(client) {
+  store.pruneEndedGiveaways();
   const now = Date.now();
   for (const giveaway of store.listActiveGiveaways()) {
     if (giveaway.endsAt > now) continue;
