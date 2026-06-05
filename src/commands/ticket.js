@@ -47,6 +47,32 @@ module.exports = {
             .setDescription('Ticket channel (defaults to current channel)')
             .addChannelTypes(ChannelType.GuildText)
         )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('cooldown')
+        .setDescription('Manage purchase lane cooldowns (admin)')
+        .addStringOption((opt) =>
+          opt
+            .setName('action')
+            .setDescription('What to do')
+            .setRequired(true)
+            .addChoices(
+              { name: 'Set cooldown duration', value: 'set' },
+              { name: 'Remove user cooldown', value: 'clear' },
+              { name: 'View user cooldown', value: 'view' }
+            )
+        )
+        .addUserOption((opt) =>
+          opt.setName('user').setDescription('User (for clear/view)')
+        )
+        .addIntegerOption((opt) =>
+          opt
+            .setName('minutes')
+            .setDescription('Cooldown minutes (for set action, 0 to disable)')
+            .setMinValue(0)
+            .setMaxValue(10080)
+        )
     ),
   permissionLevel: LEVELS.everyone,
   async execute(interaction) {
@@ -176,6 +202,63 @@ module.exports = {
         .setTimestamp();
 
       return interaction.reply({ embeds: [embed], ephemeral: true });
+    }
+
+    if (sub === 'cooldown') {
+      const { canUse, denyInteraction } = require('../utils/permissions');
+      if (!canUse(interaction.member, LEVELS.admin)) {
+        return denyInteraction(interaction, 'admin');
+      }
+
+      const action = interaction.options.getString('action');
+      const user = interaction.options.getUser('user');
+      const minutes = interaction.options.getInteger('minutes');
+
+      if (action === 'set') {
+        if (minutes == null) {
+          return interaction.reply({
+            content: 'Provide **minutes** when using the `set` action (use `0` to disable cooldowns).',
+            ephemeral: true,
+          });
+        }
+        store.setPath(interaction.guild.id, 'tickets.openCooldownMinutes', minutes);
+        return interaction.reply({
+          content:
+            minutes === 0
+              ? 'Purchase lane cooldowns are **disabled**.'
+              : `Purchase lane cooldown set to **${minutes} minute(s)**.`,
+          ephemeral: true,
+        });
+      }
+
+      if (!user) {
+        return interaction.reply({
+          content: 'Provide a **user** for the `clear` or `view` action.',
+          ephemeral: true,
+        });
+      }
+
+      if (action === 'clear') {
+        store.clearTicketCooldown(interaction.guild.id, user.id);
+        return interaction.reply({
+          content: `Removed purchase lane cooldown for ${user}.`,
+          ephemeral: true,
+        });
+      }
+
+      const cooldown = store.getTicketCooldown(interaction.guild.id, user.id);
+      if (!cooldown || cooldown.until <= Date.now()) {
+        return interaction.reply({
+          content: `${user} has no active purchase lane cooldown.`,
+          ephemeral: true,
+        });
+      }
+
+      const remaining = Math.ceil((cooldown.until - Date.now()) / 60000);
+      return interaction.reply({
+        content: `${user} is on cooldown for **${remaining} more minute(s)** (${cooldown.reason || 'cooldown'}).`,
+        ephemeral: true,
+      });
     }
   },
 };

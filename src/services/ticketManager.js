@@ -405,8 +405,16 @@ async function applyPromoCodeToTicket(channel, userId, code) {
     return { error: 'Select a plan and payment method before applying a promo code.' };
   }
 
-  const validated = promoService.validatePromo(channel.guild.id, code);
+  const member = await channel.guild.members.fetch(userId).catch(() => null);
+  const validated = promoService.validatePromo(channel.guild.id, code, member);
   if (validated.error) return { error: validated.error };
+
+  if (validated.promo.type !== promoService.PROMO_TYPES.discount_percent) {
+    return {
+      error:
+        'This is a **bonus days** code. Redeem it with **`/redeembonus`** — no ticket needed.',
+    };
+  }
 
   const plan = getPlan(ticket.planId);
   promoService.applyPromoToTicket(ticket, validated.promo);

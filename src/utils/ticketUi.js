@@ -96,8 +96,14 @@ function buildTicketWelcome(guildId, category, member) {
         inline: false,
       },
       {
-        name: 'Promo code',
-        value: 'After you pick a payment method, click **Apply promo code** (or `/promo apply code:YOURCODE`).',
+        name: 'Discount code',
+        value:
+          'After you pick a payment method, click **Redeem Discount** to apply a **discount** promo code.',
+        inline: false,
+      },
+      {
+        name: 'Bonus days code',
+        value: 'Use **`/redeembonus`** in the server or bot DMs — no ticket needed.',
         inline: false,
       },
       {
@@ -176,7 +182,7 @@ function buildPaymentMethodEmbed(guildId, method, methodKey, { plan, promo, pric
   embed.addFields({
     name: 'When finished',
     value:
-      'Use **Apply promo code** if you have one, then click **Payment sent** (or type `done`) and upload proof.',
+      'Use **Redeem Discount** if you have a discount code, then click **Payment sent** (or type `done`) and upload proof.',
     inline: false,
   });
 

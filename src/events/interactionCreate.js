@@ -57,6 +57,39 @@ module.exports = {
         return;
       }
 
+      if (interaction.isModalSubmit()) {
+        if (interaction.customId === 'redeembonus_modal') {
+          const { fetchHomeGuildMember } = require('../utils/guildContext');
+          const promoService = require('../services/promoService');
+          const code = interaction.fields.getTextInputValue('code').trim();
+          await interaction.deferReply({ ephemeral: true });
+
+          let member;
+          if (interaction.inGuild()) {
+            member = interaction.member;
+          } else {
+            const resolved = await fetchHomeGuildMember(client, interaction.user.id);
+            if (resolved.error) {
+              return interaction.editReply({ content: resolved.error });
+            }
+            member = resolved.member;
+          }
+
+          const result = promoService.redeemBonusPromo(member.guild.id, member, code);
+          if (result.error) {
+            return interaction.editReply({ content: result.error });
+          }
+
+          const expiresUnix = Math.floor(result.license.expiresAt / 1000);
+          return interaction.editReply({
+            content: [
+              `Promo **${result.promo.code}** redeemed: **${promoService.promoLabel(result.promo)}**`,
+              `Your license is now valid until <t:${expiresUnix}:F>.`,
+            ].join('\n'),
+          });
+        }
+      }
+
       if (!interaction.guild) return;
       if (interaction.isAutocomplete()) {
         const command = client.commands?.get(interaction.commandName);
@@ -67,11 +100,11 @@ module.exports = {
       }
 
       if (interaction.isModalSubmit()) {
-        if (interaction.customId.startsWith('promo_modal:')) {
+        if (interaction.customId.startsWith('discount_modal:')) {
           const channelId = interaction.customId.split(':')[1];
           if (interaction.channelId !== channelId) {
             return interaction.reply({
-              content: 'This promo form is no longer valid here.',
+              content: 'This discount form is no longer valid here.',
               ephemeral: true,
             });
           }
@@ -87,7 +120,7 @@ module.exports = {
             return interaction.editReply({ content: result.error });
           }
           return interaction.editReply({
-            content: `Promo **${result.promo.code}** applied. Check the channel for the amount you need to send.`,
+            content: `Discount **${result.promo.code}** applied. Check the channel for the amount you need to send.`,
           });
         }
 
@@ -233,7 +266,7 @@ module.exports = {
         const channelId = customId.split(':')[1];
         if (interaction.channelId !== channelId) {
           return interaction.reply({
-            content: 'Use the promo button in your ticket channel.',
+            content: 'Use the **Redeem Discount** button in your purchase ticket channel.',
             ephemeral: true,
           });
         }
@@ -241,17 +274,24 @@ module.exports = {
         const ticket = store.getTicket(channelId);
         if (!ticket || ticket.userId !== interaction.user.id) {
           return interaction.reply({
-            content: 'Only the ticket owner can apply a promo code here.',
+            content: 'Only the ticket owner can redeem a discount code here.',
+            ephemeral: true,
+          });
+        }
+
+        if (ticket.category !== 'payments') {
+          return interaction.reply({
+            content: 'Discount codes can only be used in **purchase** tickets.',
             ephemeral: true,
           });
         }
 
         const modal = new ModalBuilder()
-          .setCustomId(`promo_modal:${channelId}`)
-          .setTitle('Apply promo code');
+          .setCustomId(`discount_modal:${channelId}`)
+          .setTitle('Redeem discount code');
         const codeInput = new TextInputBuilder()
           .setCustomId('code')
-          .setLabel('Promo code')
+          .setLabel('Discount code')
           .setPlaceholder('e.g. SAVE20')
           .setStyle(TextInputStyle.Short)
           .setMinLength(3)

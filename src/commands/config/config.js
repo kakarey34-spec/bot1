@@ -15,6 +15,8 @@ const CONFIG_PATHS = [
   'tickets.awaitingProofMessage',
   'tickets.waitingApprovalMessage',
   'tickets.approvedMessage',
+  'tickets.openCooldownMinutes',
+  'tickets.inactiveCloseHours',
   'payments.paypal.details',
   'payments.paypal.enabled',
   'payments.ethereum.details',

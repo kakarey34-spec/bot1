@@ -48,6 +48,15 @@ module.exports = {
         .addStringOption((opt) =>
           opt.setName('note').setDescription('Internal note for staff').setMaxLength(200)
         )
+        .addStringOption((opt) =>
+          opt
+            .setName('audience')
+            .setDescription('Who can use this code')
+            .addChoices(
+              { name: 'Everyone', value: promoService.PROMO_AUDIENCE.general },
+              { name: 'Access role holders only', value: promoService.PROMO_AUDIENCE.access_only }
+            )
+        )
     )
     .addSubcommand((sub) =>
       sub
@@ -57,15 +66,7 @@ module.exports = {
           opt.setName('code').setDescription('Code to remove').setRequired(true)
         )
     )
-    .addSubcommand((sub) => sub.setName('list').setDescription('List promo codes (admin)'))
-    .addSubcommand((sub) =>
-      sub
-        .setName('apply')
-        .setDescription('Apply a promo code in your open purchase/renewal ticket')
-        .addStringOption((opt) =>
-          opt.setName('code').setDescription('Promo code').setRequired(true)
-        )
-    ),
+    .addSubcommand((sub) => sub.setName('list').setDescription('List promo codes (admin)')),
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
 
@@ -85,6 +86,7 @@ module.exports = {
         value: interaction.options.getNumber('value'),
         maxUses: maxUses ?? null,
         validDays: validDays ?? null,
+        audience: interaction.options.getString('audience') || promoService.PROMO_AUDIENCE.general,
         createdBy: interaction.user.id,
         note: interaction.options.getString('note'),
       });
@@ -125,22 +127,6 @@ module.exports = {
       return interaction.reply({
         content: `**Promo codes**\n\n${lines.join('\n\n')}`.slice(0, 2000),
         ephemeral: true,
-      });
-    }
-
-    if (sub === 'apply') {
-      const ticketManager = require('../services/ticketManager');
-      await interaction.deferReply({ ephemeral: true });
-      const result = await ticketManager.applyPromoCodeToTicket(
-        interaction.channel,
-        interaction.user.id,
-        interaction.options.getString('code')
-      );
-      if (result.error) {
-        return interaction.editReply({ content: result.error });
-      }
-      return interaction.editReply({
-        content: `Promo **${result.promo.code}** applied. Check this channel for the amount you need to send.`,
       });
     }
   },

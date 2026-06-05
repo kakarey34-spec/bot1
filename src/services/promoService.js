@@ -1,6 +1,7 @@
 const { EmbedBuilder } = require('discord.js');
 const store = require('../config/store');
 const { getPlan } = require('../constants/plans');
+const { hasPurchaserRole } = require('../utils/permissions');
 const { getBrandColor, brandFooter, withLogoPayload } = require('../utils/brand');
 
 const PROMO_PING_ROLE_ID = '1511981854951997461';
@@ -8,6 +9,11 @@ const PROMO_PING_ROLE_ID = '1511981854951997461';
 const PROMO_TYPES = {
   extra_days: 'extra_days',
   discount_percent: 'discount_percent',
+};
+
+const PROMO_AUDIENCE = {
+  general: 'general',
+  access_only: 'access_only',
 };
 
 function normalizeCode(code) {
@@ -37,11 +43,10 @@ function savePromo(guildId, promo) {
 
 function deletePromo(guildId, code) {
   const key = normalizeCode(code);
-  const config = store.getGuild(guildId);
-  const promos = { ...(config.promos || {}) };
+  const promos = { ...getPromoMap(guildId) };
   if (!promos[key]) return false;
   delete promos[key];
-  store.setGuild(guildId, { promos });
+  store.setPath(guildId, 'promos', promos);
   return true;
 }
 
@@ -49,7 +54,7 @@ function listPromos(guildId) {
   return Object.values(getPromoMap(guildId)).sort((a, b) => b.createdAt - a.createdAt);
 }
 
-function validatePromo(guildId, code) {
+function validatePromo(guildId, code, member = null) {
   const key = normalizeCode(code);
   if (!key) return { error: 'Enter a valid promo code.' };
 
@@ -62,7 +67,44 @@ function validatePromo(guildId, code) {
     return { error: 'This promo code has reached its use limit.' };
   }
 
+  const audience = promo.audience || PROMO_AUDIENCE.general;
+  if (audience === PROMO_AUDIENCE.access_only) {
+    if (!member) {
+      return { error: 'This promo code is only for members with active access.' };
+    }
+    if (!hasPurchaserRole(member)) {
+      return { error: 'This promo code is only for members with active access.' };
+    }
+  }
+
   return { ok: true, promo };
+}
+
+function redeemBonusPromo(guildId, member, code) {
+  const validated = validatePromo(guildId, code, member);
+  if (validated.error) return validated;
+
+  if (validated.promo.type !== PROMO_TYPES.extra_days) {
+    return {
+      error:
+        'This is a **discount** code. Open a **purchase ticket** and use the **Redeem Discount** button there.',
+    };
+  }
+
+  const license = store.getLicense(guildId, member.id);
+  const now = Date.now();
+  if (!license || license.expired || license.expiresAt <= now) {
+    return {
+      error:
+        'You need an **active license** to redeem bonus day codes. Purchase access first, then use `/redeembonus`.',
+    };
+  }
+
+  applyPromoToLicense(license, validated.promo);
+  store.setLicense(guildId, member.id, license);
+  consumePromo(guildId, validated.promo.code);
+
+  return { ok: true, promo: validated.promo, license };
 }
 
 function consumePromo(guildId, code) {
@@ -82,7 +124,11 @@ function formatPromoLimits(promo) {
       : 'no expiry';
   const days =
     promo.validDays != null ? `active ${promo.validDays} day(s) from creation` : null;
-  return [uses, days, valid].filter(Boolean).join(' · ');
+  const audience =
+    promo.audience === PROMO_AUDIENCE.access_only
+      ? 'access role holders only'
+      : 'everyone';
+  return [uses, days, valid, audience].filter(Boolean).join(' · ');
 }
 
 function promoLabel(promo) {
@@ -145,10 +191,16 @@ function createPromoRecord(guildId, data) {
     expiresAt = Date.now() + data.validDays * 24 * 60 * 60 * 1000;
   }
 
+  const audience = data.audience || PROMO_AUDIENCE.general;
+  if (!Object.values(PROMO_AUDIENCE).includes(audience)) {
+    return { error: 'Invalid promo audience.' };
+  }
+
   const promo = {
     code,
     type,
     value,
+    audience,
     maxUses: data.maxUses ?? null,
     validDays: data.validDays ?? null,
     uses: 0,
@@ -260,12 +312,25 @@ function resolveTicketPromo(guildId, ticket) {
 }
 
 function buildPromoAnnouncementEmbed(guildId, promo) {
+  const redeemInstructions =
+    promo.type === PROMO_TYPES.extra_days
+      ? 'Redeem with **`/redeembonus`** in the server or in bot DMs. No ticket needed.'
+      : 'Open a **purchase ticket** and click **Redeem Discount** to apply this code at checkout.';
+
   const embed = new EmbedBuilder()
     .setColor(getBrandColor())
     .setTitle('◆ New promo code')
-    .setDescription(`Use code **\`${promo.code}\`** in your purchase ticket or with \`/promo apply\`.`)
+    .setDescription(`Use code **\`${promo.code}\`** — ${redeemInstructions}`)
     .addFields(
       { name: 'Offer', value: promoLabel(promo), inline: true },
+      {
+        name: 'Eligibility',
+        value:
+          promo.audience === PROMO_AUDIENCE.access_only
+            ? 'Members with active access only'
+            : 'Everyone',
+        inline: true,
+      },
       { name: 'Details', value: formatPromoLimits(promo), inline: false }
     )
     .setFooter(brandFooter(guildId))
@@ -289,11 +354,13 @@ async function announcePromoCreated(channel, guildId, promo) {
 
 module.exports = {
   PROMO_TYPES,
+  PROMO_AUDIENCE,
   normalizeCode,
   getPromo,
   listPromos,
   deletePromo,
   validatePromo,
+  redeemBonusPromo,
   consumePromo,
   createPromoRecord,
   applyPromoToLicense,

@@ -9,7 +9,7 @@ const COMMAND_HELP = {
     '`/faq` — Payment, renewal, scanner, and support answers.',
     '`/status view` — Check scanner operational status.',
     '`/mylicense` — View your license (buyers with active access).',
-    '`/promo apply` — Apply a promo code in your open purchase/renewal ticket.',
+    '`/redeembonus` — Redeem a **bonus days** promo code (no ticket needed).',
   ],
   staff: [
     '`/who` — Learn what VIRELLO does and open the website.',
@@ -34,8 +34,9 @@ const COMMAND_HELP = {
     '`/giveaway end` — End early and pick winners (message ID).',
     '`/giveaway reroll` — Replace an invalid winner (message ID + user).',
     '`/giveaway list` — Active giveaways in this server.',
-    '`/promo create` — Set code, discount/days, `max_uses`, `valid_days`.',
+    '`/promo create` — Set code, discount/days, audience, `max_uses`, `valid_days`.',
     '`/promo delete` `list` — Manage promo codes.',
+    '`/ticket cooldown` — Set, view, or remove purchase lane cooldowns.',
     '`/ticket panel` — Post the **Purchase** or **Support** panel (`type` option).',
   ],
   config: [

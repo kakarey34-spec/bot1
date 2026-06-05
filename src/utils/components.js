@@ -83,7 +83,7 @@ function paymentActionRows(channelId) {
         .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
         .setCustomId(`${TICKET_IDS.promo}:${channelId}`)
-        .setLabel('Apply promo code')
+        .setLabel('Redeem Discount')
         .setEmoji('🎟️')
         .setStyle(ButtonStyle.Secondary)
     ),

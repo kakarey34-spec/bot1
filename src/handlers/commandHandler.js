@@ -23,7 +23,7 @@ function createSlashCommandHandler(client) {
   loadCommands(path.join(__dirname, '../commands'), commands);
   client.commands = commands;
 
-  const DM_COMMAND_NAMES = new Set(['mylicense', 'promoapply']);
+  const DM_COMMAND_NAMES = new Set(['mylicense', 'redeembonus']);
 
   async function deployCommands() {
     const all = [...commands.values()];
