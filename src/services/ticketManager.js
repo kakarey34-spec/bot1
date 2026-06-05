@@ -437,7 +437,24 @@ async function applyPromoCodeToTicket(channel, userId, code) {
     components: paymentActionRows(channel.id),
   });
 
-  return { ok: true, promo: validated.promo, pricing };
+  return { ok: true, promo: validated.promo, pricing, channel };
+}
+
+async function applyPromoForUser(client, guildId, userId, code) {
+  const open = store.findOpenTicketByUser(guildId, userId);
+  if (!open) {
+    return {
+      error:
+        'You need an open purchase or renewal ticket. Open one from the server purchase panel first.',
+    };
+  }
+
+  const channel = await client.channels.fetch(open.channelId).catch(() => null);
+  if (!channel?.isTextBased()) {
+    return { error: 'Your ticket channel could not be found. Contact staff.' };
+  }
+
+  return applyPromoCodeToTicket(channel, userId, code);
 }
 
 async function selectPaymentMethod(channel, userId, methodKey) {
@@ -803,6 +820,7 @@ module.exports = {
   selectPlan,
   selectPaymentMethod,
   applyPromoCodeToTicket,
+  applyPromoForUser,
   markPaymentDone,
   handleProofMessage,
   handleDoneKeyword,

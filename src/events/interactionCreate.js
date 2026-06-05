@@ -50,18 +50,18 @@ module.exports = {
         });
       }
 
+      if (interaction.isChatInputCommand()) {
+        if (client.slashHandler) {
+          await client.slashHandler.handleSlashCommand(interaction);
+        }
+        return;
+      }
+
       if (!interaction.guild) return;
       if (interaction.isAutocomplete()) {
         const command = client.commands?.get(interaction.commandName);
         if (command?.autocomplete) {
           await command.autocomplete(interaction);
-        }
-        return;
-      }
-
-      if (interaction.isChatInputCommand()) {
-        if (client.slashHandler) {
-          await client.slashHandler.handleSlashCommand(interaction);
         }
         return;
       }

@@ -1,23 +1,46 @@
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder } = require('discord.js');
+const {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  SlashCommandBuilder,
+  InteractionContextType,
+} = require('discord.js');
 const licenseService = require('../services/licenseService');
 const { SITE_URL } = require('../constants/plans');
 const { hasPurchaserRole, denyPurchaserInteraction } = require('../utils/permissions');
 const { withLogoPayload } = require('../utils/brand');
 const { virelloEmbed } = require('../utils/ticketUi');
 const store = require('../config/store');
+const { fetchHomeGuildMember } = require('../utils/guildContext');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('mylicense')
-    .setDescription('View your VIRELLO license status (buyers only)'),
-  async execute(interaction) {
-    if (!hasPurchaserRole(interaction.member)) {
+    .setDescription('View your VIRELLO license status (buyers only)')
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM),
+  async execute(interaction, client) {
+    let guildId;
+    let member;
+
+    if (interaction.inGuild()) {
+      guildId = interaction.guild.id;
+      member = interaction.member;
+    } else {
+      const resolved = await fetchHomeGuildMember(client, interaction.user.id);
+      if (resolved.error) {
+        return interaction.reply({ content: resolved.error, ephemeral: true });
+      }
+      guildId = resolved.guildId;
+      member = resolved.member;
+    }
+
+    if (!hasPurchaserRole(member)) {
       return denyPurchaserInteraction(interaction);
     }
 
-    const license = licenseService.getLicense(interaction.guild.id, interaction.user.id);
+    const license = licenseService.getLicense(guildId, interaction.user.id);
     const status = licenseService.licenseStatus(license);
-    const siteUrl = store.getGuild(interaction.guild.id).license?.siteUrl || SITE_URL;
+    const siteUrl = store.getGuild(guildId).license?.siteUrl || SITE_URL;
 
     if (!license) {
       return interaction.reply({
@@ -28,7 +51,7 @@ module.exports = {
     }
 
     const expiresUnix = Math.floor(status.expiresAt / 1000);
-    const embed = virelloEmbed(interaction.guild.id, {
+    const embed = virelloEmbed(guildId, {
       title: '◆ Your VIRELLO license',
       description: status.active
         ? 'Your access is **active**.'

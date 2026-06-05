@@ -23,18 +23,31 @@ function createSlashCommandHandler(client) {
   loadCommands(path.join(__dirname, '../commands'), commands);
   client.commands = commands;
 
+  const DM_COMMAND_NAMES = new Set(['mylicense', 'promoapply']);
+
   async function deployCommands() {
-    const body = [...commands.values()].map((c) => c.data.toJSON());
+    const all = [...commands.values()];
     const token = process.env.DISCORD_TOKEN;
     const clientId = process.env.CLIENT_ID || client.user.id;
     const guildId = process.env.GUILD_ID;
 
     const rest = new REST({ version: '10' }).setToken(token);
+    const globalBody = all
+      .filter((c) => DM_COMMAND_NAMES.has(c.data.name))
+      .map((c) => c.data.toJSON());
+    const guildBody = all
+      .filter((c) => !DM_COMMAND_NAMES.has(c.data.name))
+      .map((c) => c.data.toJSON());
 
     if (guildId) {
-      await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body });
-      console.log(`Registered ${body.length} slash command(s) for guild ${guildId}`);
+      if (globalBody.length) {
+        await rest.put(Routes.applicationCommands(clientId), { body: globalBody });
+        console.log(`Registered ${globalBody.length} global slash command(s) for DMs`);
+      }
+      await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: guildBody });
+      console.log(`Registered ${guildBody.length} slash command(s) for guild ${guildId}`);
     } else {
+      const body = all.map((c) => c.data.toJSON());
       await rest.put(Routes.applicationCommands(clientId), { body });
       console.log(`Registered ${body.length} global slash command(s)`);
     }
