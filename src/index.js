@@ -4,6 +4,7 @@ const { Client, GatewayIntentBits, Partials } = require('discord.js');
 const { loadEvents } = require('./handlers/eventHandler');
 const { createSlashCommandHandler } = require('./handlers/commandHandler');
 const store = require('./config/store');
+const backup = require('./services/backupService');
 
 const client = new Client({
   intents: [
@@ -31,10 +32,24 @@ if (!process.env.CLIENT_ID) {
 
 const port = process.env.PORT || 3000;
 http
-  .createServer((req, res) => {
-    const isHealthRoute = req.url === '/' || req.url === '/health';
-    res.writeHead(isHealthRoute ? 200 : 404, { 'Content-Type': 'text/plain' });
-    res.end(isHealthRoute ? 'VIRELLO bot is online' : 'Not found');
+  .createServer(async (req, res) => {
+    const path = (req.url || '/').split('?')[0];
+    const isHealthRoute = path === '/' || path === '/health';
+    if (!isHealthRoute) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not found');
+      return;
+    }
+    try {
+      const payload = await backup.getHealthStatus();
+      const statusCode = payload.status === 'ok' ? 200 : 503;
+      const body = JSON.stringify(payload);
+      res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+      res.end(body);
+    } catch (error) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'degraded', detail: 'Health check failed' }));
+    }
   })
   .listen(port, () => {
     console.log(`Health server listening on port ${port}`);
@@ -42,7 +57,10 @@ http
 
 store
   .init()
-  .then(() => client.login(token))
+  .then(() => {
+    backup.startScheduler();
+    return client.login(token);
+  })
   .catch((err) => {
     console.error('Failed to start:', err);
     process.exit(1);

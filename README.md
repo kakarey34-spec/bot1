@@ -122,11 +122,26 @@ On first boot with an empty database, existing `data/*.json` files are imported 
    - `DATABASE_URL` = Internal Database URL from step 2
    - Keep `DISCORD_TOKEN`, `CLIENT_ID`, `GUILD_ID` as before
 4. **Deploy** — Push code or **Manual Deploy**. Check logs for `Storage: PostgreSQL` or `migrated from data/*.json`.
-5. **UptimeRobot** — Keep pinging `https://your-app.onrender.com/health` (unchanged).
+5. **UptimeRobot** — Keep pinging `https://your-app.onrender.com/health` with keyword `ok`.
 
 **Start command:** `npm start` · **Build:** `npm install`
 
 If you already had live data only in `data/*.json` on the server disk, upload or paste that data into `data/` before the first Postgres deploy, or export from a backup — the one-time import runs only when the database is empty.
+
+### Automated database backup and recovery
+
+When `DATABASE_URL` is set, the bot exports guild config, tickets, licenses, cooldowns, and giveaways every **29 days** to a Discord channel using the bot token (`DISCORD_TOKEN`). On startup, if PostgreSQL is empty (for example after a Render reset), the bot downloads the latest `virellobot-db-backup-*.json.gz` attachment and restores automatically.
+
+Add to your Render environment (reuse the same backup channel as the Virello Scanner API):
+
+```env
+DISCORD_BACKUP_CHANNEL_ID=your_backup_channel_id
+BACKUP_INTERVAL_DAYS=29
+BACKUP_AUTO_RESTORE=true
+BACKUP_ENABLED=true
+```
+
+The scanner API uploads `virello-db-backup-*` files; this bot uploads `virellobot-db-backup-*` files to the same channel.
 
 ### What is not in the database
 

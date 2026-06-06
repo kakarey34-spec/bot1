@@ -231,6 +231,101 @@ async function importJsonSnapshot(cache, tickets, licenses, cooldowns, giveaways
   }
 }
 
+async function databaseHasData() {
+  const p = getPool();
+  const checks = await Promise.all([
+    p.query('SELECT COUNT(*)::int AS count FROM guild_config'),
+    p.query('SELECT COUNT(*)::int AS count FROM tickets'),
+    p.query('SELECT COUNT(*)::int AS count FROM licenses'),
+    p.query('SELECT COUNT(*)::int AS count FROM ticket_cooldowns'),
+    p.query('SELECT COUNT(*)::int AS count FROM giveaways'),
+  ]);
+  return checks.some(({ rows }) => rows[0].count > 0);
+}
+
+async function exportDatabaseSnapshot() {
+  const snapshot = await loadAll();
+  return {
+    version: 1,
+    exported_at: new Date().toISOString(),
+    snapshot,
+  };
+}
+
+async function restoreFromSnapshot(snapshot) {
+  const { cache = {}, tickets = {}, licenses = {}, cooldowns = {}, giveaways = {} } = snapshot || {};
+  const p = getPool();
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      'TRUNCATE guild_config, tickets, licenses, ticket_cooldowns, giveaways RESTART IDENTITY'
+    );
+    for (const [guildId, config] of Object.entries(cache)) {
+      await client.query(
+        `INSERT INTO guild_config (guild_id, config) VALUES ($1, $2::jsonb)`,
+        [guildId, JSON.stringify(config)]
+      );
+    }
+    for (const [channelId, data] of Object.entries(tickets)) {
+      await client.query(
+        `INSERT INTO tickets (channel_id, guild_id, data) VALUES ($1, $2, $3::jsonb)`,
+        [channelId, data.guildId, JSON.stringify(data)]
+      );
+    }
+    for (const [guildId, bucket] of Object.entries(licenses)) {
+      for (const [userId, data] of Object.entries(bucket)) {
+        await client.query(
+          `INSERT INTO licenses (guild_id, user_id, data) VALUES ($1, $2, $3::jsonb)`,
+          [guildId, userId, JSON.stringify(data)]
+        );
+      }
+    }
+    for (const [guildId, bucket] of Object.entries(cooldowns)) {
+      for (const [userId, data] of Object.entries(bucket)) {
+        await client.query(
+          `INSERT INTO ticket_cooldowns (guild_id, user_id, data) VALUES ($1, $2, $3::jsonb)`,
+          [guildId, userId, JSON.stringify(data)]
+        );
+      }
+    }
+    for (const [messageId, data] of Object.entries(giveaways)) {
+      await client.query(
+        `INSERT INTO giveaways (message_id, guild_id, data) VALUES ($1, $2, $3::jsonb)`,
+        [messageId, data.guildId, JSON.stringify(data)]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+async function initBackupMeta() {
+  await getPool().query(`
+    CREATE TABLE IF NOT EXISTS _app_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
+}
+
+async function getMeta(key) {
+  const { rows } = await getPool().query('SELECT value FROM _app_meta WHERE key = $1', [key]);
+  return rows[0]?.value ?? null;
+}
+
+async function setMeta(key, value) {
+  await getPool().query(
+    `INSERT INTO _app_meta (key, value) VALUES ($1, $2)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+    [key, value]
+  );
+}
+
 async function migrateFromJsonIfEmpty() {
   if (!(await isEmpty())) return false;
 
@@ -271,5 +366,11 @@ module.exports = {
   upsertGiveaway,
   deleteGiveaway,
   migrateFromJsonIfEmpty,
+  databaseHasData,
+  exportDatabaseSnapshot,
+  restoreFromSnapshot,
+  initBackupMeta,
+  getMeta,
+  setMeta,
   persist,
 };

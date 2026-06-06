@@ -69,7 +69,9 @@ class ConfigStore {
 
     if (this._usePg) {
       const pg = require('../db/postgres');
+      const backup = require('../services/backupService');
       await pg.initSchema();
+      await backup.initializeBackupSystem();
       let imported = await pg.migrateFromJsonIfEmpty();
       const data = await pg.loadAll();
       this._cache = data.cache;
