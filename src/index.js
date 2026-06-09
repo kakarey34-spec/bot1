@@ -30,10 +30,16 @@ if (!process.env.CLIENT_ID) {
   console.warn('CLIENT_ID is not set — slash command registration uses the bot user id after login.');
 }
 
+const { handleAdminRequest } = require('./admin/routes');
+
 const port = process.env.PORT || 3000;
 http
   .createServer(async (req, res) => {
     const path = (req.url || '/').split('?')[0];
+    if (path === '/admin' || path.startsWith('/admin/')) {
+      await handleAdminRequest(req, res);
+      return;
+    }
     const isHealthRoute = path === '/' || path === '/health';
     if (!isHealthRoute) {
       res.writeHead(404, { 'Content-Type': 'text/plain' });

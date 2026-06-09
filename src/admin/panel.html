@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Virello Bot Admin</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background: #09090b; color: #f4f4f5; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 20px; }
+    .wrap { max-width: 1100px; margin: 0 auto; display: grid; gap: 16px; }
+    header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; border: 1px solid #3f1d24; border-radius: 12px; padding: 16px 18px; background: #121214; }
+    h1 { margin: 0; font-size: 1.35rem; }
+    .muted { color: #a1a1aa; font-size: 0.9rem; }
+    button, a.btn { border: 1px solid #5c1d27; border-radius: 8px; background: #1b1719; color: #fff; padding: 8px 14px; cursor: pointer; text-decoration: none; font: inherit; }
+    button.primary, a.btn.primary { background: linear-gradient(180deg, #f12b3d, #b11220); border-color: #ef233c; font-weight: 600; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+    .card { border: 1px solid #27272a; border-radius: 12px; padding: 14px; background: #101012; }
+    .card strong { display: block; font-size: 1.6rem; margin-bottom: 4px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #27272a; vertical-align: top; }
+    th { color: #a1a1aa; font-weight: 600; }
+    .panel { border: 1px solid #27272a; border-radius: 12px; padding: 14px; background: #101012; overflow-x: auto; }
+    .login-box { max-width: 420px; margin: 12vh auto; text-align: center; display: grid; gap: 14px; }
+    .error { color: #fecaca; background: #450a0a; border: 1px solid #7f1d1d; padding: 10px 12px; border-radius: 8px; }
+    @media (max-width: 640px) {
+      body { padding: 12px; }
+      header { flex-direction: column; align-items: stretch; }
+      table { font-size: 0.8rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap" id="app">
+    <p class="muted">Loading…</p>
+  </div>
+  <script>
+    const app = document.getElementById('app');
+
+    async function api(path, options) {
+      const res = await fetch('/admin/api' + path, { credentials: 'include', ...options });
+      if (res.status === 401) return null;
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+      return res.json();
+    }
+
+    function loginView() {
+      app.innerHTML = `
+        <section class="login-box card">
+          <h1>Virello Bot Admin</h1>
+          <p class="muted">Owner-only panel for tickets, licenses, health, and backups.</p>
+          <a class="btn primary" href="/admin/auth/login">Sign in with Discord</a>
+        </section>`;
+    }
+
+    function statCard(label, value) {
+      return `<div class="card"><strong>${value}</strong><span class="muted">${label}</span></div>`;
+    }
+
+    function tableRows(items, cols) {
+      if (!items.length) return '<tr><td colspan="99" class="muted">No rows.</td></tr>';
+      return items.map((row) => `<tr>${cols.map((c) => `<td>${c(row)}</td>`).join('')}</tr>`).join('');
+    }
+
+    async function dashboardView(me) {
+      const [overview, health, tickets, licenses] = await Promise.all([
+        api('/overview'),
+        api('/health'),
+        api('/tickets'),
+        api('/licenses'),
+      ]);
+      const openTickets = (tickets || []).filter((t) => t.stage !== 'closed').slice(0, 30);
+      const activeLicenses = (licenses || []).slice(0, 30);
+      app.innerHTML = `
+        <header>
+          <div>
+            <h1>Virello Bot Admin</h1>
+            <p class="muted">Signed in as ${me.username} (${me.userId})</p>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button id="backupBtn" class="primary">Run backup now</button>
+            <button id="refreshBtn">Refresh</button>
+            <a class="btn" href="/admin/auth/logout">Log out</a>
+          </div>
+        </header>
+        <div class="grid">
+          ${statCard('Open tickets', overview?.openTicketCount ?? '—')}
+          ${statCard('Total tickets', overview?.ticketCount ?? '—')}
+          ${statCard('Active licenses', overview?.activeLicenseCount ?? '—')}
+          ${statCard('DB status', health?.status ?? '—')}
+        </div>
+        <section class="panel">
+          <h2>Open tickets</h2>
+          <table>
+            <thead><tr><th>Channel</th><th>User</th><th>Stage</th><th>Lane</th></tr></thead>
+            <tbody>${tableRows(openTickets, [
+              (t) => t.channelId || '—',
+              (t) => t.userId || '—',
+              (t) => t.stage || '—',
+              (t) => t.lane || '—',
+            ])}</tbody>
+          </table>
+        </section>
+        <section class="panel">
+          <h2>Licenses</h2>
+          <table>
+            <thead><tr><th>User</th><th>Expires</th><th>Granted</th></tr></thead>
+            <tbody>${tableRows(activeLicenses, [
+              (l) => l.userId || '—',
+              (l) => l.expiresAt ? new Date(l.expiresAt).toLocaleString() : 'never',
+              (l) => l.grantedAt ? new Date(l.grantedAt).toLocaleString() : '—',
+            ])}</tbody>
+          </table>
+        </section>`;
+      document.getElementById('refreshBtn').onclick = () => boot();
+      document.getElementById('backupBtn').onclick = async () => {
+        const btn = document.getElementById('backupBtn');
+        btn.disabled = true;
+        try {
+          await api('/backup/trigger', { method: 'POST' });
+          alert('Backup uploaded.');
+        } catch (e) {
+          alert(e.message);
+        } finally {
+          btn.disabled = false;
+        }
+      };
+    }
+
+    async function boot() {
+      try {
+        const me = await api('/me');
+        if (!me) {
+          loginView();
+          return;
+        }
+        await dashboardView(me);
+      } catch (e) {
+        app.innerHTML = `<div class="error">${e.message}</div>`;
+      }
+    }
+
+    boot();
+  </script>
+</body>
+</html>
