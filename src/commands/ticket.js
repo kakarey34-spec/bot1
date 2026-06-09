@@ -29,6 +29,20 @@ module.exports = {
         )
     )
     .addSubcommand((sub) =>
+      sub
+        .setName('find')
+        .setDescription('Find a user\'s open ticket (staff)')
+        .addUserOption((opt) => opt.setName('user').setDescription('User to look up').setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('note')
+        .setDescription('Add a staff-only note to the current ticket')
+        .addStringOption((opt) =>
+          opt.setName('text').setDescription('Internal note (not shown to the buyer)').setRequired(true).setMaxLength(500)
+        )
+    )
+    .addSubcommand((sub) =>
       sub.setName('list').setDescription('List open tickets in this server (staff)')
     )
     .addSubcommand((sub) =>
@@ -154,6 +168,39 @@ module.exports = {
       return interaction.editReply({
         content: 'Payment approved. Purchaser role granted and license recorded.',
       });
+    }
+
+    if (sub === 'find') {
+      const { canUse, denyInteraction } = require('../utils/permissions');
+      if (!canUse(interaction.member, LEVELS.staff)) {
+        return denyInteraction(interaction, 'staff');
+      }
+      const user = interaction.options.getUser('user', true);
+      const ticket = store.findOpenTicketByUser(interaction.guild.id, user.id);
+      if (!ticket) {
+        return interaction.reply({ content: `${user} has no open ticket in this server.`, ephemeral: true });
+      }
+      return interaction.reply({
+        content: `Open ticket for ${user}: <#${ticket.channelId}> · stage \`${ticket.stage}\`${ticket.staffNote ? ` · note: ${ticket.staffNote}` : ''}`,
+        ephemeral: true,
+      });
+    }
+
+    if (sub === 'note') {
+      const { canUse, denyInteraction } = require('../utils/permissions');
+      if (!canUse(interaction.member, LEVELS.staff)) {
+        return denyInteraction(interaction, 'staff');
+      }
+      const ticket = store.getTicket(interaction.channel.id);
+      if (!ticket) {
+        return interaction.reply({ content: 'Use this inside a ticket channel.', ephemeral: true });
+      }
+      const text = interaction.options.getString('text', true).trim();
+      ticket.staffNote = text;
+      ticket.staffNoteBy = interaction.user.id;
+      ticket.staffNoteAt = Date.now();
+      store.setTicket(interaction.channel.id, ticket);
+      return interaction.reply({ content: 'Staff note saved on this ticket.', ephemeral: true });
     }
 
     if (sub === 'list' || sub === 'stats') {

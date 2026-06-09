@@ -150,6 +150,28 @@ async function handleAdminRequest(req, res) {
       return;
     }
 
+    if (pathname === '/admin/api/backup/restore' && req.method === 'POST') {
+      try {
+        let force = false;
+        try {
+          const body = await new Promise((resolve, reject) => {
+            const chunks = [];
+            req.on('data', (c) => chunks.push(c));
+            req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+            req.on('error', reject);
+          });
+          if (body) force = Boolean(JSON.parse(body).force);
+        } catch {
+          force = false;
+        }
+        await backup.restoreLatestBackup({ force });
+        sendJson(res, 200, { ok: true, message: 'Database restored from latest Discord backup.' });
+      } catch (error) {
+        sendJson(res, 500, { detail: error.message });
+      }
+      return;
+    }
+
     if (pathname === '/admin/api/backup/trigger' && req.method === 'POST') {
       try {
         await backup.createAndUploadBackup();

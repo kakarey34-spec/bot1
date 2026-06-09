@@ -283,10 +283,30 @@ async function getHealthStatus() {
   };
 }
 
+async function restoreLatestBackup({ force = false } = {}) {
+  if (!backupIsConfigured() || !usingPostgres()) {
+    throw new Error('PostgreSQL and Discord backup must be configured.');
+  }
+  const database = getPg();
+  if (!force && (await database.databaseHasData())) {
+    throw new Error('Database is not empty. Use force=true or the web /admin restore with confirmation.');
+  }
+  const backup = await downloadLatestBackup();
+  if (!backup?.snapshot) {
+    throw new Error('No Virello Bot backup found in the Discord channel.');
+  }
+  await database.restoreFromSnapshot(backup.snapshot);
+  const restoredAt = new Date().toISOString();
+  lastRestoreAt = restoredAt;
+  await database.setMeta('last_restore_at', restoredAt);
+  return { ok: true, exported_at: backup.exported_at || null };
+}
+
 module.exports = {
   initializeBackupSystem,
   startScheduler,
   getHealthStatus,
   maybeRunScheduledBackup,
   createAndUploadBackup,
+  restoreLatestBackup,
 };

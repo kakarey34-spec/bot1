@@ -79,6 +79,7 @@
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button id="backupBtn" class="primary">Run backup now</button>
+            <button id="restoreBtn">Restore latest backup</button>
             <button id="refreshBtn">Refresh</button>
             <a class="btn" href="/admin/auth/logout">Log out</a>
           </div>
@@ -119,6 +120,20 @@
         try {
           await api('/backup/trigger', { method: 'POST' });
           alert('Backup uploaded.');
+        } catch (e) {
+          alert(e.message);
+        } finally {
+          btn.disabled = false;
+        }
+      };
+      document.getElementById('restoreBtn').onclick = async () => {
+        if (!confirm('Restore the database from the latest Discord backup? This overwrites local data.')) return;
+        const btn = document.getElementById('restoreBtn');
+        btn.disabled = true;
+        try {
+          await api('/backup/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ force: true }) });
+          alert('Database restored from latest backup.');
+          await boot();
         } catch (e) {
           alert(e.message);
         } finally {

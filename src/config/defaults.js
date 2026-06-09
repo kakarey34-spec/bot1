@@ -90,6 +90,7 @@ module.exports = {
     expiryWarningDays: [7, 3, 1],
   },
   scanner: {
+    downloadUrl: 'https://github.com/popesmoke/test/releases/latest',
     status: 'operational',
     statusMessage: 'All scanner systems are operational.',
     statusUpdatedAt: null,

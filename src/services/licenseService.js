@@ -88,17 +88,27 @@ async function sendWelcomeDm(guild, userId, license, plan) {
     .setColor(0x57f287)
     .setTitle('◆ VIRELLO — Access granted')
     .setDescription(
-      'Your payment was approved and your license is now **active**.\n\nUse `/mylicense` in the server anytime to check your status.'
+      [
+        'Your payment was approved and your license is now **active**.',
+        '',
+        '**Next steps**',
+        '1. Join the Discord server (if you have not already).',
+        '2. Open the dashboard and click **Verify Access** with Discord.',
+        '3. Generate a PIN, then run `/scanner guide` for the download link.',
+        '4. Enter the PIN in the scanner and wait for the report to upload.',
+        '',
+        'Use `/mylicense` anytime to check your status.',
+      ].join('\n')
     )
     .addFields(
       { name: 'Plan', value: plan.label, inline: true },
       { name: 'Valid until', value: `<t:${expiresUnix}:F>`, inline: true },
-      { name: 'Website', value: siteUrl, inline: false }
+      { name: 'Dashboard', value: siteUrl, inline: false }
     )
     .setTimestamp();
 
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setLabel('Open VIRELLO').setStyle(ButtonStyle.Link).setURL(siteUrl)
+    new ButtonBuilder().setLabel('Open dashboard').setStyle(ButtonStyle.Link).setURL(siteUrl)
   );
 
   const payload = { embeds: [embed], components: [row] };
