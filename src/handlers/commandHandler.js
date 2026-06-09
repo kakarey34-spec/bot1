@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { Collection, REST, Routes } = require('discord.js');
+const { isSuperAdmin } = require('../admin/auth');
 const { canUse, denyInteraction } = require('../utils/permissions');
 
 function loadCommands(dir, collection) {
@@ -56,6 +57,10 @@ function createSlashCommandHandler(client) {
   async function handleSlashCommand(interaction) {
     const command = commands.get(interaction.commandName);
     if (!command) return;
+
+    if (command.superAdminOnly && !isSuperAdmin(interaction.user.id)) {
+      return denyInteraction(interaction, 'bot owner');
+    }
 
     if (command.permissionLevel != null) {
       if (!canUse(interaction.member, command.permissionLevel)) {

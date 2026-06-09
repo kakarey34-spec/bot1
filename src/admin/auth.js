@@ -20,6 +20,17 @@ function isSuperAdmin(userId) {
   return SUPER_ADMIN_IDS.has(String(userId));
 }
 
+function adminPanelUrl() {
+  const explicit = (process.env.ADMIN_PUBLIC_URL || '').trim().replace(/\/$/, '');
+  if (explicit) return `${explicit}/admin`;
+  const callback = (process.env.ADMIN_CALLBACK_URL || '').trim();
+  if (callback) {
+    const base = callback.replace(/\/admin\/auth\/callback\/?$/i, '').replace(/\/$/, '');
+    if (base) return `${base}/admin`;
+  }
+  return null;
+}
+
 function oauthConfigured() {
   return Boolean(CLIENT_ID && CLIENT_SECRET && REDIRECT_URI);
 }
@@ -126,6 +137,7 @@ function clearSessionCookie() {
 
 module.exports = {
   isSuperAdmin,
+  adminPanelUrl,
   oauthConfigured,
   sessionFromRequest,
   buildLoginUrl,
