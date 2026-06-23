@@ -261,6 +261,32 @@ async function checkDatabaseConnection() {
 }
 
 async function getHealthStatus() {
+  const store = require('../config/store');
+  const engine = store.getStorageEngine?.() || (usingPostgres() ? 'postgresql' : 'json');
+  const discordSync = require('../db/discordSync');
+
+  if (engine === 'discord') {
+    return {
+      status: discordSync.isConfigured() ? 'ok' : 'degraded',
+      service: 'virellobot',
+      timestamp: new Date().toISOString(),
+      database: {
+        connected: discordSync.isConfigured(),
+        engine: 'discord-txt',
+        has_data: true,
+      },
+      backup: {
+        enabled: backupEnabled(),
+        configured: discordSync.isConfigured(),
+        auto_restore_enabled: discordSync.isConfigured(),
+        interval_days: BACKUP_INTERVAL_DAYS,
+        last_backup_at: null,
+        last_restore_at: null,
+        sync_channel: process.env.DISCORD_SYNC_CHANNEL_ID || DISCORD_BACKUP_CHANNEL_ID || null,
+      },
+    };
+  }
+
   const databaseConnected = await checkDatabaseConnection();
   const database = usingPostgres() ? getPg() : null;
   return {

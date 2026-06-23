@@ -83,6 +83,11 @@ module.exports = {
     )
     .addSubcommand((sub) =>
       sub
+        .setName('emergency')
+        .setDescription('Immediately upload all config files to the Discord sync channel')
+    )
+    .addSubcommand((sub) =>
+      sub
         .setName('restore')
         .setDescription('Restore database from latest Discord backup (destructive)')
         .addBooleanOption((opt) =>
@@ -108,6 +113,17 @@ module.exports = {
         return interaction.editReply({ content: 'Database backup uploaded to the configured Discord channel.' });
       } catch (error) {
         return interaction.editReply({ content: `Backup failed: ${error.message}` });
+      }
+    }
+
+    if (sub === 'emergency') {
+      try {
+        const result = await store.emergencyBackup();
+        return interaction.editReply({
+          content: `Emergency backup uploaded (${result.engine}). All data files are now in the Discord sync channel.`,
+        });
+      } catch (error) {
+        return interaction.editReply({ content: `Emergency backup failed: ${error.message}` });
       }
     }
 

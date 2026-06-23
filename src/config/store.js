@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const defaults = require('./defaults');
+const discordSync = require('../db/discordSync');
 
 const DATA_DIR = path.join(__dirname, '../../data');
 const CONFIG_PATH = path.join(DATA_DIR, 'guild-config.json');
@@ -51,9 +52,20 @@ function deepMerge(target, source) {
   return out;
 }
 
+function resolveStorageMode() {
+  const explicit = (process.env.STORAGE_MODE || '').trim().toLowerCase();
+  if (explicit === 'discord') return 'discord';
+  if (explicit === 'postgres' && process.env.DATABASE_URL?.trim()) return 'postgres';
+  if (explicit === 'json') return 'json';
+  if (discordSync.isConfigured()) return 'discord';
+  if (process.env.DATABASE_URL?.trim()) return 'postgres';
+  return 'json';
+}
+
 class ConfigStore {
   constructor() {
     this._initialized = false;
+    this._storageMode = 'json';
     this._usePg = false;
     this._cache = {};
     this._tickets = {};
@@ -62,17 +74,22 @@ class ConfigStore {
     this._giveaways = {};
   }
 
+  getStorageEngine() {
+    return this._storageMode;
+  }
+
   async init() {
     if (this._initialized) return;
 
-    this._usePg = Boolean(process.env.DATABASE_URL?.trim());
+    this._storageMode = resolveStorageMode();
+    this._usePg = this._storageMode === 'postgres';
 
-    if (this._usePg) {
+    if (this._storageMode === 'postgres') {
       const pg = require('../db/postgres');
       const backup = require('../services/backupService');
       await pg.initSchema();
       await backup.initializeBackupSystem();
-      let imported = await pg.migrateFromJsonIfEmpty();
+      const imported = await pg.migrateFromJsonIfEmpty();
       const data = await pg.loadAll();
       this._cache = data.cache;
       this._tickets = data.tickets;
@@ -85,16 +102,30 @@ class ConfigStore {
           ? 'Storage: PostgreSQL (migrated from data/*.json)'
           : 'Storage: PostgreSQL'
       );
+    } else if (this._storageMode === 'discord') {
+      const data = await discordSync.loadAll();
+      this._cache = data.cache;
+      this._tickets = data.tickets;
+      this._licenses = data.licenses;
+      this._cooldowns = data.cooldowns;
+      this._giveaways = data.giveaways;
+      console.log('Storage: Discord channel txt sync');
     } else {
       this._cache = readJson(CONFIG_PATH, {});
       this._tickets = readJson(TICKETS_PATH, {});
       this._licenses = readJson(LICENSES_PATH, {});
       this._cooldowns = readJson(COOLDOWNS_PATH, {});
       this._giveaways = readJson(GIVEAWAYS_PATH, {});
-      console.log('Storage: JSON files in data/ (set DATABASE_URL for PostgreSQL)');
+      console.log('Storage: JSON files in data/');
     }
 
     this._initialized = true;
+  }
+
+  _persistDiscord() {
+    if (this._storageMode === 'discord') {
+      discordSync.schedulePersist(() => discordSync.exportSnapshot(this));
+    }
   }
 
   getGuild(guildId) {
@@ -138,6 +169,8 @@ class ConfigStore {
   save() {
     if (this._usePg) {
       this._pg.persist(this._pg.saveAllGuildConfig(this._cache), 'save guild config');
+    } else if (this._storageMode === 'discord') {
+      this._persistDiscord();
     } else {
       writeJson(CONFIG_PATH, this._cache);
     }
@@ -151,6 +184,8 @@ class ConfigStore {
     this._tickets[channelId] = data;
     if (this._usePg) {
       this._pg.persist(this._pg.upsertTicket(channelId, data), 'setTicket');
+    } else if (this._storageMode === 'discord') {
+      this._persistDiscord();
     } else {
       writeJson(TICKETS_PATH, this._tickets);
     }
@@ -160,6 +195,8 @@ class ConfigStore {
     delete this._tickets[channelId];
     if (this._usePg) {
       this._pg.persist(this._pg.deleteTicket(channelId), 'deleteTicket');
+    } else if (this._storageMode === 'discord') {
+      this._persistDiscord();
     } else {
       writeJson(TICKETS_PATH, this._tickets);
     }
@@ -171,7 +208,6 @@ class ConfigStore {
       .map(([channelId, t]) => ({ channelId, ...t }));
   }
 
-  /** Any ticket for this user that is not closed (one open ticket per user per guild). */
   findOpenTicketByUser(guildId, userId) {
     return this.listTicketsForGuild(guildId).find(
       (t) => t.userId === userId && t.stage !== 'closed'
@@ -191,6 +227,8 @@ class ConfigStore {
     this._licenseBucket(guildId)[userId] = data;
     if (this._usePg) {
       this._pg.persist(this._pg.upsertLicense(guildId, userId, data), 'setLicense');
+    } else if (this._storageMode === 'discord') {
+      this._persistDiscord();
     } else {
       writeJson(LICENSES_PATH, this._licenses);
     }
@@ -218,6 +256,8 @@ class ConfigStore {
     this._cooldownBucket(guildId)[userId] = row;
     if (this._usePg) {
       this._pg.persist(this._pg.upsertCooldown(guildId, userId, row), 'setTicketCooldown');
+    } else if (this._storageMode === 'discord') {
+      this._persistDiscord();
     } else {
       writeJson(COOLDOWNS_PATH, this._cooldowns);
     }
@@ -227,6 +267,8 @@ class ConfigStore {
     delete this._cooldownBucket(guildId)[userId];
     if (this._usePg) {
       this._pg.persist(this._pg.deleteCooldown(guildId, userId), 'clearTicketCooldown');
+    } else if (this._storageMode === 'discord') {
+      this._persistDiscord();
     } else {
       writeJson(COOLDOWNS_PATH, this._cooldowns);
     }
@@ -247,6 +289,8 @@ class ConfigStore {
     this._giveaways[messageId] = data;
     if (this._usePg) {
       this._pg.persist(this._pg.upsertGiveaway(messageId, data), 'setGiveaway');
+    } else if (this._storageMode === 'discord') {
+      this._persistDiscord();
     } else {
       writeJson(GIVEAWAYS_PATH, this._giveaways);
     }
@@ -256,6 +300,8 @@ class ConfigStore {
     delete this._giveaways[messageId];
     if (this._usePg) {
       this._pg.persist(this._pg.deleteGiveaway(messageId), 'deleteGiveaway');
+    } else if (this._storageMode === 'discord') {
+      this._persistDiscord();
     } else {
       writeJson(GIVEAWAYS_PATH, this._giveaways);
     }
@@ -275,6 +321,19 @@ class ConfigStore {
         this.deleteGiveaway(messageId);
       }
     }
+  }
+
+  async emergencyBackup() {
+    if (this._storageMode === 'discord') {
+      await discordSync.persistAll(discordSync.exportSnapshot(this));
+      return { ok: true, engine: 'discord-txt' };
+    }
+    if (this._usePg) {
+      const backup = require('../services/backupService');
+      await backup.createAndUploadBackup();
+      return { ok: true, engine: 'postgresql' };
+    }
+    throw new Error('Emergency backup requires Discord sync or PostgreSQL storage.');
   }
 }
 
