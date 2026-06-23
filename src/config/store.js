@@ -323,17 +323,18 @@ class ConfigStore {
     }
   }
 
-  async emergencyBackup() {
+  async backupNow() {
     if (this._storageMode === 'discord') {
+      const discordSync = require('../db/discordSync');
       await discordSync.persistAll(discordSync.exportSnapshot(this));
-      return { ok: true, engine: 'discord-txt' };
+      return { ok: true, engine: 'discord-txt', file: discordSync.SNAPSHOT_FILENAME };
     }
     if (this._usePg) {
       const backup = require('../services/backupService');
       await backup.createAndUploadBackup();
       return { ok: true, engine: 'postgresql' };
     }
-    throw new Error('Emergency backup requires Discord sync or PostgreSQL storage.');
+    throw new Error('Backup requires Discord sync or PostgreSQL storage.');
   }
 }
 

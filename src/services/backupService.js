@@ -280,9 +280,10 @@ async function getHealthStatus() {
         configured: discordSync.isConfigured(),
         auto_restore_enabled: discordSync.isConfigured(),
         interval_days: BACKUP_INTERVAL_DAYS,
-        last_backup_at: null,
+        last_backup_at: discordSync.getLastSyncAt(),
         last_restore_at: null,
         sync_channel: process.env.DISCORD_SYNC_CHANNEL_ID || DISCORD_BACKUP_CHANNEL_ID || null,
+        snapshot_file: discordSync.SNAPSHOT_FILENAME,
       },
     };
   }

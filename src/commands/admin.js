@@ -79,12 +79,7 @@ module.exports = {
       sub.setName('health').setDescription('Database and backup health check')
     )
     .addSubcommand((sub) =>
-      sub.setName('backup').setDescription('Upload a database backup to Discord now')
-    )
-    .addSubcommand((sub) =>
-      sub
-        .setName('emergency')
-        .setDescription('Immediately upload all config files to the Discord sync channel')
+      sub.setName('backup').setDescription('Upload a full data backup to Discord now')
     )
     .addSubcommand((sub) =>
       sub
@@ -109,21 +104,21 @@ module.exports = {
 
     if (sub === 'backup') {
       try {
-        await backup.createAndUploadBackup();
-        return interaction.editReply({ content: 'Database backup uploaded to the configured Discord channel.' });
+        const engine = store.getStorageEngine();
+        if (engine === 'discord') {
+          const discordSync = require('../db/discordSync');
+          await discordSync.persistAll(discordSync.exportSnapshot(store));
+          return interaction.editReply({
+            content: `Backup uploaded to Discord (\`${discordSync.SNAPSHOT_FILENAME}\`).`,
+          });
+        }
+        if (engine === 'postgres') {
+          await backup.createAndUploadBackup();
+          return interaction.editReply({ content: 'Database backup uploaded to the configured Discord channel.' });
+        }
+        return interaction.editReply({ content: 'Backup requires Discord sync or PostgreSQL storage.' });
       } catch (error) {
         return interaction.editReply({ content: `Backup failed: ${error.message}` });
-      }
-    }
-
-    if (sub === 'emergency') {
-      try {
-        const result = await store.emergencyBackup();
-        return interaction.editReply({
-          content: `Emergency backup uploaded (${result.engine}). All data files are now in the Discord sync channel.`,
-        });
-      } catch (error) {
-        return interaction.editReply({ content: `Emergency backup failed: ${error.message}` });
       }
     }
 

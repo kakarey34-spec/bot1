@@ -6,8 +6,10 @@ const TOKEN = process.env.DISCORD_TOKEN || process.env.DISCORD_BOT_TOKEN || '';
 const CHANNEL_ID = process.env.DISCORD_SYNC_CHANNEL_ID || process.env.DISCORD_BACKUP_CHANNEL_ID || '';
 
 const DATA_DIR = path.join(__dirname, '../../data');
+const SNAPSHOT_FILENAME = 'virellobot-backup.txt';
+const SNAPSHOT_VERSION = 1;
 
-const FILE_MAP = {
+const LEGACY_FILE_MAP = {
   cache: 'virellobot-guild-config.txt',
   tickets: 'virellobot-active-tickets.txt',
   licenses: 'virellobot-licenses.txt',
@@ -16,8 +18,11 @@ const FILE_MAP = {
   meta: 'virellobot-meta.txt',
 };
 
+const SNAPSHOT_KEYS = ['cache', 'tickets', 'licenses', 'cooldowns', 'giveaways'];
+
 let persistTimer = null;
 let persistInFlight = false;
+let lastSyncAt = null;
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) {
@@ -25,24 +30,83 @@ function ensureDataDir() {
   }
 }
 
-function localPath(filename) {
-  return path.join(DATA_DIR, filename);
+function localSnapshotPath() {
+  return path.join(DATA_DIR, SNAPSHOT_FILENAME);
 }
 
-function readLocalJson(filename, fallback) {
-  ensureDataDir();
-  const file = localPath(filename);
-  if (!fs.existsSync(file)) return structuredClone(fallback);
+function emptySnapshot() {
+  return {
+    cache: {},
+    tickets: {},
+    licenses: {},
+    cooldowns: {},
+    giveaways: {},
+    meta: {},
+  };
+}
+
+function readLocalJson(filePath, fallback) {
+  if (!fs.existsSync(filePath)) return structuredClone(fallback);
   try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
   } catch {
     return structuredClone(fallback);
   }
 }
 
-function writeLocalJson(filename, data) {
+function packSnapshot(snapshot) {
+  const packed = {
+    version: SNAPSHOT_VERSION,
+    exported_at: new Date().toISOString(),
+    cache: snapshot.cache ?? {},
+    tickets: snapshot.tickets ?? {},
+    licenses: snapshot.licenses ?? {},
+    cooldowns: snapshot.cooldowns ?? {},
+    giveaways: snapshot.giveaways ?? {},
+    meta: {
+      ...(snapshot.meta ?? {}),
+      last_sync_at: new Date().toISOString(),
+    },
+  };
+  return packed;
+}
+
+function unpackSnapshot(data) {
+  if (!data || typeof data !== 'object') return emptySnapshot();
+  return {
+    cache: data.cache ?? {},
+    tickets: data.tickets ?? {},
+    licenses: data.licenses ?? {},
+    cooldowns: data.cooldowns ?? {},
+    giveaways: data.giveaways ?? {},
+    meta: data.meta ?? {},
+  };
+}
+
+function readLocalSnapshot() {
+  const raw = readLocalJson(localSnapshotPath(), null);
+  if (!raw) return null;
+  return unpackSnapshot(raw);
+}
+
+function readLegacyLocalAll() {
+  return {
+    cache: readLocalJson(path.join(DATA_DIR, 'guild-config.json'), {}),
+    tickets: readLocalJson(path.join(DATA_DIR, 'active-tickets.json'), {}),
+    licenses: readLocalJson(path.join(DATA_DIR, 'licenses.json'), {}),
+    cooldowns: readLocalJson(path.join(DATA_DIR, 'ticket-cooldowns.json'), {}),
+    giveaways: readLocalJson(path.join(DATA_DIR, 'giveaways.json'), {}),
+    meta: {},
+  };
+}
+
+function writeLocalSnapshot(packed) {
   ensureDataDir();
-  fs.writeFileSync(localPath(filename), JSON.stringify(data, null, 2), 'utf8');
+  fs.writeFileSync(localSnapshotPath(), JSON.stringify(packed, null, 2), 'utf8');
+}
+
+function hasLocalData(data) {
+  return SNAPSHOT_KEYS.some((key) => Object.keys(data[key] || {}).length > 0);
 }
 
 function isConfigured() {
@@ -70,22 +134,16 @@ async function listMessages(limit = 100) {
   return discordRequest('GET', `/channels/${CHANNEL_ID}/messages?limit=${limit}`);
 }
 
-function attachmentFromMessage(message, filename) {
-  for (const attachment of message.attachments || []) {
-    if (attachment.filename === filename) return attachment;
-  }
-  return null;
-}
-
 async function findLatestAttachment(filename) {
   const messages = await listMessages();
   let latest = null;
   for (const message of messages) {
-    const attachment = attachmentFromMessage(message, filename);
-    if (!attachment) continue;
-    const createdAt = Date.parse(message.timestamp);
-    if (!latest || createdAt > latest.createdAt) {
-      latest = { attachment, createdAt };
+    for (const attachment of message.attachments || []) {
+      if (attachment.filename !== filename) continue;
+      const createdAt = Date.parse(message.timestamp);
+      if (!latest || createdAt > latest.createdAt) {
+        latest = { attachment, createdAt };
+      }
     }
   }
   return latest?.attachment || null;
@@ -99,70 +157,77 @@ async function downloadText(url) {
   return response.text();
 }
 
-async function uploadText(filename, text, label) {
+async function uploadSnapshot(packed) {
+  const text = JSON.stringify(packed, null, 2);
   const form = new FormData();
   form.append(
     'payload_json',
     JSON.stringify({
-      content: `Virello Bot data sync: ${label} (${new Date().toISOString()})`,
+      content: `Virello Bot backup (${packed.exported_at})`,
     })
   );
-  form.append('files[0]', new Blob([text], { type: 'text/plain' }), filename);
-  return discordRequest('POST', `/channels/${CHANNEL_ID}/messages`, { body: form });
+  form.append('files[0]', new Blob([text], { type: 'text/plain' }), SNAPSHOT_FILENAME);
+  await discordRequest('POST', `/channels/${CHANNEL_ID}/messages`, { body: form });
+  lastSyncAt = packed.meta?.last_sync_at || packed.exported_at;
 }
 
-function readLocalAll() {
-  return {
-    cache: readLocalJson(FILE_MAP.cache, {}),
-    tickets: readLocalJson(FILE_MAP.tickets, {}),
-    licenses: readLocalJson(FILE_MAP.licenses, {}),
-    cooldowns: readLocalJson(FILE_MAP.cooldowns, {}),
-    giveaways: readLocalJson(FILE_MAP.giveaways, {}),
-    meta: readLocalJson(FILE_MAP.meta, {}),
-  };
-}
-
-function hasLocalData(data) {
-  return Boolean(
-    Object.keys(data.cache || {}).length
-      || Object.keys(data.tickets || {}).length
-      || Object.keys(data.licenses || {}).length
-      || Object.keys(data.cooldowns || {}).length
-      || Object.keys(data.giveaways || {}).length
-  );
-}
-
-async function loadKeyFromDiscord(key) {
-  const filename = FILE_MAP[key];
-  const attachment = await findLatestAttachment(filename);
+async function loadSnapshotFromDiscord() {
+  const attachment = await findLatestAttachment(SNAPSHOT_FILENAME);
   if (!attachment?.url) return null;
   const text = await downloadText(attachment.url);
-  return JSON.parse(text);
+  return unpackSnapshot(JSON.parse(text));
+}
+
+async function loadLegacyFromDiscord() {
+  const merged = emptySnapshot();
+  let loaded = false;
+  for (const key of [...SNAPSHOT_KEYS, 'meta']) {
+    try {
+      const filename = LEGACY_FILE_MAP[key];
+      const attachment = await findLatestAttachment(filename);
+      if (!attachment?.url) continue;
+      const text = await downloadText(attachment.url);
+      const remote = JSON.parse(text);
+      if (key === 'meta' || Object.keys(remote).length) {
+        merged[key] = remote;
+        loaded = true;
+      }
+    } catch (error) {
+      console.warn(`Discord legacy sync load failed for ${key}:`, error.message || error);
+    }
+  }
+  return loaded ? merged : null;
 }
 
 async function loadAll() {
-  const local = readLocalAll();
+  const local = readLocalSnapshot() || readLegacyLocalAll();
   if (!isConfigured()) {
     return local;
   }
 
-  const merged = { ...local };
-  let loadedFromDiscord = false;
-
-  for (const key of ['cache', 'tickets', 'licenses', 'cooldowns', 'giveaways', 'meta']) {
-    try {
-      const remote = await loadKeyFromDiscord(key);
-      if (remote && (key === 'meta' || Object.keys(remote).length)) {
-        merged[key] = remote;
-        writeLocalJson(FILE_MAP[key], remote);
-        loadedFromDiscord = true;
-      }
-    } catch (error) {
-      console.warn(`Discord sync load failed for ${key}:`, error.message || error);
+  try {
+    const remote = await loadSnapshotFromDiscord();
+    if (remote && hasLocalData(remote)) {
+      writeLocalSnapshot(packSnapshot(remote));
+      console.log('Discord sync: loaded unified backup file.');
+      return remote;
     }
+  } catch (error) {
+    console.warn('Discord unified backup load failed:', error.message || error);
   }
 
-  if (!loadedFromDiscord && hasLocalData(local)) {
+  try {
+    const legacy = await loadLegacyFromDiscord();
+    if (legacy && hasLocalData(legacy)) {
+      await persistAll(legacy);
+      console.log('Discord sync: migrated legacy multi-file backup to unified file.');
+      return legacy;
+    }
+  } catch (error) {
+    console.warn('Discord legacy backup load failed:', error.message || error);
+  }
+
+  if (hasLocalData(local)) {
     try {
       await persistAll(local);
       console.log('Discord sync: uploaded local data to channel (first-time seed).');
@@ -171,17 +236,15 @@ async function loadAll() {
     }
   }
 
-  return merged;
+  return local;
 }
 
 async function persistAll(snapshot) {
   if (!snapshot) return;
-  for (const [key, filename] of Object.entries(FILE_MAP)) {
-    const payload = snapshot[key] ?? (key === 'meta' ? {} : {});
-    writeLocalJson(filename, payload);
-    if (isConfigured()) {
-      await uploadText(filename, JSON.stringify(payload, null, 2), key);
-    }
+  const packed = packSnapshot(snapshot);
+  writeLocalSnapshot(packed);
+  if (isConfigured()) {
+    await uploadSnapshot(packed);
   }
 }
 
@@ -214,11 +277,16 @@ function exportSnapshot(store) {
   };
 }
 
+function getLastSyncAt() {
+  return lastSyncAt;
+}
+
 module.exports = {
   isConfigured,
   loadAll,
   persistAll,
   schedulePersist,
   exportSnapshot,
-  FILE_MAP,
+  getLastSyncAt,
+  SNAPSHOT_FILENAME,
 };
