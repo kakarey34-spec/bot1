@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const shoppexApi = require('../services/shoppexApi');
 const shoppexFulfillment = require('../services/shoppexFulfillment');
 
 function fulfillmentSecret() {
@@ -80,13 +81,28 @@ async function handleShoppexFulfillRequest(req, res) {
   }
 
   const discordId = String(payload.discord_id || payload.discordId || '').trim();
-  const planId = String(payload.plan_id || payload.planId || '').trim();
+  let planId = String(payload.plan_id || payload.planId || '').trim();
   const invoiceId = String(payload.invoice_id || payload.invoiceId || '').trim() || null;
   const action = String(payload.action || 'fulfill').trim().toLowerCase();
 
+  if (action !== 'revoke' && !planId && invoiceId && shoppexApi.apiConfigured()) {
+    const invoice = await shoppexApi.fetchInvoice(invoiceId);
+    if (invoice) {
+      planId = shoppexApi.planIdFromInvoice(invoice) || planId;
+      if (!discordId) {
+        const invoiceDiscordId = shoppexApi.extractDiscordId(invoice);
+        if (invoiceDiscordId) {
+          payload.discord_id = invoiceDiscordId;
+        }
+      }
+    }
+  }
+
+  const resolvedDiscordId = String(payload.discord_id || payload.discordId || discordId).trim();
+
   if (action === 'revoke') {
     const result = await shoppexFulfillment.revokeShoppexPurchase({
-      discordId,
+      discordId: resolvedDiscordId,
       reason: String(payload.reason || 'Shoppex subscription ended'),
     });
     if (!result.ok) {
@@ -99,7 +115,7 @@ async function handleShoppexFulfillRequest(req, res) {
   }
 
   const result = await shoppexFulfillment.fulfillShoppexPurchase({
-    discordId,
+    discordId: resolvedDiscordId,
     planId,
     invoiceId,
   });
