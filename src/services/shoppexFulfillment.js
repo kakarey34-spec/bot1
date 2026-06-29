@@ -11,7 +11,7 @@ function resolveGuildId() {
   return (
     process.env.GUILD_ID ||
     process.env.DISCORD_GUILD_ID ||
-    ''
+    '1510614253508493373'
   ).trim();
 }
 
