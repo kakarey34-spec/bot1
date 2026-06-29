@@ -85,6 +85,7 @@ async function handleShoppexFulfillRequest(req, res) {
   const planId = String(payload.plan_id || payload.planId || '').trim() || null;
   const discordId = String(payload.discord_id || payload.discordId || '').trim() || null;
   const trustPaid = payload.trust_paid === true || payload.trustPaid === true;
+  const customFields = payload.custom_fields || payload.customFields || null;
 
   if (action === 'revoke') {
     const result = await shoppexFulfillment.revokeShoppexPurchase({
@@ -107,6 +108,7 @@ async function handleShoppexFulfillRequest(req, res) {
       planId,
       requirePaid: !trustPaid,
       trustPaid,
+      customFields,
     });
   } else if (discordId && planId) {
     result = await shoppexFulfillment.fulfillShoppexPurchase({
@@ -120,8 +122,23 @@ async function handleShoppexFulfillRequest(req, res) {
   }
 
   if (!result.ok) {
-    const retryable = new Set(['invoice_not_paid', 'invoice_not_found', 'missing_discord_id', 'missing_plan_id']);
-    const status = result.reason === 'user_not_in_guild' ? 422 : retryable.has(result.reason) ? 409 : 400;
+    const retryable = new Set([
+      'invoice_not_paid',
+      'invoice_not_found',
+      'missing_discord_id',
+      'missing_plan_id',
+      'not_configured',
+      'guild_not_found',
+      'shoppex_api_not_configured',
+      'user_not_in_guild',
+    ]);
+    const status = result.reason === 'not_configured' || result.reason === 'guild_not_found'
+      ? 503
+      : result.reason === 'user_not_in_guild'
+        ? 422
+        : retryable.has(result.reason)
+          ? 409
+          : 400;
     sendJson(res, status, result);
     return;
   }
