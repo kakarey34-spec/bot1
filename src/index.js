@@ -4,7 +4,10 @@ const { Client, GatewayIntentBits, Partials } = require('discord.js');
 const { loadEvents } = require('./handlers/eventHandler');
 const { createSlashCommandHandler } = require('./handlers/commandHandler');
 const store = require('./config/store');
+const backup = require('./services/backupService');
 const { startPricingSyncLoop } = require('./services/dashboardSync');
+const shoppexFulfillment = require('./services/shoppexFulfillment');
+const { handleShoppexFulfillRequest } = require('./webhooks/shoppexFulfill');
 
 const client = new Client({
   intents: [
@@ -36,6 +39,10 @@ const port = process.env.PORT || 3000;
 http
   .createServer(async (req, res) => {
     const path = (req.url || '/').split('?')[0];
+    if (path === '/webhooks/shoppex-fulfill') {
+      await handleShoppexFulfillRequest(req, res);
+      return;
+    }
     if (path === '/admin' || path.startsWith('/admin/')) {
       await handleAdminRequest(req, res);
       return;
@@ -66,6 +73,7 @@ store
   .then(() => {
     backup.startScheduler();
     startPricingSyncLoop();
+    shoppexFulfillment.setClient(client);
     return client.login(token);
   })
   .catch((err) => {

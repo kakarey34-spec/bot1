@@ -1,6 +1,7 @@
 const { ActivityType } = require('discord.js');
 const { startSchedulers } = require('../services/ticketScheduler');
 const { startGiveawayScheduler } = require('../services/giveawayScheduler');
+const shoppexFulfillment = require('../services/shoppexFulfillment');
 
 module.exports = {
   name: 'clientReady',
@@ -12,6 +13,7 @@ module.exports = {
       await client.slashHandler.deployCommands();
     }
 
+    shoppexFulfillment.setClient(client);
     startSchedulers(client);
     startGiveawayScheduler(client);
     client.user.setActivity('VIRELLO · /help', { type: ActivityType.Watching });
