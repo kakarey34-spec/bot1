@@ -2,6 +2,7 @@ const store = require('../config/store');
 const ticketManager = require('./ticketManager');
 const licenseService = require('./licenseService');
 const { upsertBuyerRegistry } = require('../utils/buyerRegistry');
+const { syncLicenseRevoke } = require('./licenseDashboardSync');
 
 const { STAGES } = ticketManager;
 
@@ -62,6 +63,10 @@ async function processLicenses(client) {
         if (user && updated) {
           await licenseService.sendExpiredDm(client, user, guild.id, updated);
           await upsertBuyerRegistry(guild, userId, updated);
+          void syncLicenseRevoke({
+            discordId: userId,
+            reason: 'License expired',
+          });
         }
         continue;
       }

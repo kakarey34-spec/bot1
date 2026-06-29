@@ -2,6 +2,7 @@ const licenseService = require('./licenseService');
 const shoppexApi = require('./shoppexApi');
 const store = require('../config/store');
 const { upsertBuyerRegistry } = require('../utils/buyerRegistry');
+const { syncLicenseGrant, syncLicenseRevoke } = require('./licenseDashboardSync');
 
 let clientRef = null;
 
@@ -171,6 +172,12 @@ async function fulfillShoppexPurchase({ discordId, planId, invoiceId }) {
   console.log(
     `[shoppex] License active for ${normalizedId} plan=${planId} until ${new Date(result.license.expiresAt).toISOString()} invoice=${invoiceId || 'n/a'}`
   );
+  void syncLicenseGrant({
+    discordId: normalizedId,
+    planId,
+    invoiceId: invoiceId || null,
+    expiresAt: result.license.expiresAt,
+  });
   return {
     ok: true,
     planId,
@@ -196,6 +203,10 @@ async function revokeShoppexPurchase({ discordId, reason = 'Shoppex subscription
 
   await upsertBuyerRegistry(guild, normalizedId, result.license);
   console.log(`[shoppex] Revoked license for ${normalizedId}: ${reason}`);
+  void syncLicenseRevoke({
+    discordId: normalizedId,
+    reason,
+  });
   return { ok: true, discordId: normalizedId };
 }
 
