@@ -236,7 +236,7 @@ module.exports = {
         });
       }
 
-      const planKey = PLAN_KEY_MAP[customId];
+      const planKey = PLAN_KEY_MAP[customId] || (customId.startsWith('plan_') ? customId.slice(5) : null);
       if (planKey) {
         const result = await ticketManager.selectPlan(
           interaction.channel,

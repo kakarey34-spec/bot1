@@ -4,7 +4,7 @@ const { Client, GatewayIntentBits, Partials } = require('discord.js');
 const { loadEvents } = require('./handlers/eventHandler');
 const { createSlashCommandHandler } = require('./handlers/commandHandler');
 const store = require('./config/store');
-const backup = require('./services/backupService');
+const { startPricingSyncLoop } = require('./services/dashboardSync');
 
 const client = new Client({
   intents: [
@@ -65,6 +65,7 @@ store
   .init()
   .then(() => {
     backup.startScheduler();
+    startPricingSyncLoop();
     return client.login(token);
   })
   .catch((err) => {

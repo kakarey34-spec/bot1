@@ -29,22 +29,13 @@ module.exports = {
   permissionLevel: LEVELS.staff,
   permissionLabel: 'staff',
   async execute(interaction) {
-    const summaries = {
-      monthly:
-        'A simple month-to-month option for users who want full access without a long commitment.',
-      quarterly:
-        'A balanced pick for steady users who want more time upfront and a better overall rate.',
-      yearly:
-        'The strongest value for long-term protection, updates, and uninterrupted scanner access.',
-    };
-
     const embed = virelloEmbed(interaction.guild.id, {
       title: '◆ VIRELLO — License Plans',
       description:
-        'Choose the access window that fits how you use VIRELLO. Every plan includes the same core scanner access and Discord-based support.',
+        'Personal and enterprise tiers. Pay with card on the website or open a ticket here for PayPal, Greek Paysafe, Litecoin, or Ethereum.',
       fields: listPlans().map((plan) => ({
-        name: plan.label,
-        value: planValue(summaries[plan.id] || plan.label, plan.price, plan.term),
+        name: `${plan.label}${plan.slots > 1 ? ` · ${plan.slots} seats` : ''}`,
+        value: planValue(plan.blurb || plan.label, plan.price, plan.term),
         inline: false,
       })),
     });

@@ -22,14 +22,16 @@ const RENEWAL_OPEN_PREFIX = 'renewal_open:';
 const PLAN_IDS = {
   monthly: 'plan_monthly',
   quarterly: 'plan_quarterly',
+  semiannual: 'plan_semiannual',
   yearly: 'plan_yearly',
+  duo: 'plan_duo',
+  enterprise_10: 'plan_enterprise_10',
+  enterprise_20: 'plan_enterprise_20',
 };
 
-const PLAN_KEY_MAP = {
-  [PLAN_IDS.monthly]: 'monthly',
-  [PLAN_IDS.quarterly]: 'quarterly',
-  [PLAN_IDS.yearly]: 'yearly',
-};
+const PLAN_KEY_MAP = Object.fromEntries(
+  Object.entries(PLAN_IDS).map(([planId, customId]) => [customId, planId]),
+);
 
 const PAYMENT_EMOJI = {
   paypal: '💳',
@@ -40,13 +42,14 @@ const PAYMENT_EMOJI = {
 
 function planSelectionRow() {
   const { listPlans } = require('../constants/plans');
-  const buttons = listPlans().map((plan) =>
-    new ButtonBuilder()
-      .setCustomId(PLAN_IDS[plan.id])
+  const buttons = listPlans().map((plan) => {
+    const customId = PLAN_IDS[plan.id] || `plan_${plan.id}`;
+    return new ButtonBuilder()
+      .setCustomId(customId)
       .setLabel(plan.label)
       .setStyle(ButtonStyle.Secondary)
-      .setEmoji(plan.emoji)
-  );
+      .setEmoji(plan.emoji);
+  });
 
   const rows = [];
   for (let i = 0; i < buttons.length; i += 5) {
