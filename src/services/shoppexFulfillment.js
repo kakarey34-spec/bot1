@@ -141,7 +141,7 @@ async function fulfillShoppexPurchase({ discordId, planId, invoiceId }) {
     shoppexInvoiceId: invoiceId || null,
   });
   if (result.error) {
-    return { ok: false, reason: result.error };
+    return { ok: false, reason: result.error, discordId: normalizedId, accessRoleId: roleResult.roleId };
   }
 
   await upsertBuyerRegistry(guild, normalizedId, result.license);
