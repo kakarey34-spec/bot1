@@ -3,7 +3,7 @@ const { listPlans } = require('../constants/plans');
 const SHOPPEX_API_BASE = (process.env.SHOPPEX_API_BASE || 'https://api.shoppex.io').replace(/\/$/, '');
 const SHOPPEX_API_KEY = (process.env.SHOPPEX_API_KEY || '').trim();
 
-const PAID_STATUSES = new Set(['COMPLETED', 'PAID', 'ACTIVE', 'FULFILLED']);
+const PAID_STATUSES = new Set(['COMPLETED', 'PAID', 'ACTIVE', 'FULFILLED', 'SUCCEEDED']);
 
 function apiConfigured() {
   return Boolean(SHOPPEX_API_KEY);
@@ -132,7 +132,11 @@ function planIdFromInvoice(invoice) {
 }
 
 function invoiceIsPaid(invoice) {
-  const status = String(invoice?.status || invoice?.payment_status || '').trim().toUpperCase();
+  const status = String(
+    invoice?.status || invoice?.payment_status || invoice?.paymentStatus || '',
+  )
+    .trim()
+    .toUpperCase();
   return PAID_STATUSES.has(status);
 }
 

@@ -59,30 +59,52 @@ async function grantAccessRole(guild, userId, reason = 'Shoppex purchase verifie
   }
 }
 
-async function fulfillFromInvoice(invoiceId, { discordId = null, requirePaid = true } = {}) {
+async function fulfillFromInvoice(
+  invoiceId,
+  { discordId = null, planId = null, requirePaid = true, trustPaid = false } = {},
+) {
   const normalizedInvoiceId = String(invoiceId || '').trim();
   if (!normalizedInvoiceId) {
     return { ok: false, reason: 'missing_invoice_id' };
   }
+
+  const hintedDiscordId = String(discordId || '').trim();
+  const hintedPlanId = String(planId || '').trim();
+
+  // Webhook already verified payment — grant immediately when checkout data is known.
+  if (trustPaid && hintedDiscordId && hintedPlanId) {
+    return fulfillShoppexPurchase({
+      discordId: hintedDiscordId,
+      planId: hintedPlanId,
+      invoiceId: normalizedInvoiceId,
+    });
+  }
+
   if (!shoppexApi.apiConfigured()) {
     return { ok: false, reason: 'shoppex_api_not_configured' };
   }
 
   const invoice = await shoppexApi.fetchInvoice(normalizedInvoiceId);
   if (!invoice) {
+    if (trustPaid && hintedDiscordId && hintedPlanId) {
+      return fulfillShoppexPurchase({
+        discordId: hintedDiscordId,
+        planId: hintedPlanId,
+        invoiceId: normalizedInvoiceId,
+      });
+    }
     return { ok: false, reason: 'invoice_not_found' };
   }
-  if (requirePaid && !shoppexApi.invoiceIsPaid(invoice)) {
+  if (requirePaid && !trustPaid && !shoppexApi.invoiceIsPaid(invoice)) {
     return { ok: false, reason: 'invoice_not_paid' };
   }
 
   const invoiceDiscordId = shoppexApi.extractDiscordId(invoice);
-  // Checkout custom field is authoritative — use it before any caller-provided Discord ID.
-  const resolvedDiscordId = String(invoiceDiscordId || discordId || '').trim();
-  const planId = shoppexApi.planIdFromInvoice(invoice);
+  const resolvedDiscordId = String(invoiceDiscordId || hintedDiscordId || '').trim();
+  const resolvedPlanId = shoppexApi.planIdFromInvoice(invoice) || hintedPlanId || '';
   const invoiceUniqid = String(invoice.uniqid || invoice.id || normalizedInvoiceId).trim();
 
-  if (discordId && invoiceDiscordId && discordId !== invoiceDiscordId) {
+  if (hintedDiscordId && invoiceDiscordId && hintedDiscordId !== invoiceDiscordId) {
     return {
       ok: false,
       reason: 'discord_id_mismatch',
@@ -92,13 +114,13 @@ async function fulfillFromInvoice(invoiceId, { discordId = null, requirePaid = t
   if (!resolvedDiscordId) {
     return { ok: false, reason: 'missing_discord_id' };
   }
-  if (!planId) {
+  if (!resolvedPlanId) {
     return { ok: false, reason: 'missing_plan_id' };
   }
 
   return fulfillShoppexPurchase({
     discordId: resolvedDiscordId,
-    planId,
+    planId: resolvedPlanId,
     invoiceId: invoiceUniqid,
   });
 }

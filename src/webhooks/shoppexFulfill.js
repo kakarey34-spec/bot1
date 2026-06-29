@@ -83,9 +83,10 @@ async function handleShoppexFulfillRequest(req, res) {
   const action = String(payload.action || 'fulfill').trim().toLowerCase();
   const invoiceId = String(payload.invoice_id || payload.invoiceId || '').trim() || null;
   const planId = String(payload.plan_id || payload.planId || '').trim() || null;
+  const discordId = String(payload.discord_id || payload.discordId || '').trim() || null;
+  const trustPaid = payload.trust_paid === true || payload.trustPaid === true;
 
   if (action === 'revoke') {
-    const discordId = String(payload.discord_id || payload.discordId || '').trim() || null;
     const result = await shoppexFulfillment.revokeShoppexPurchase({
       discordId,
       reason: String(payload.reason || 'Shoppex subscription ended'),
@@ -101,22 +102,21 @@ async function handleShoppexFulfillRequest(req, res) {
 
   let result;
   if (invoiceId) {
-    // Always read the checkout Discord user ID from the Shoppex invoice custom fields.
     result = await shoppexFulfillment.fulfillFromInvoice(invoiceId, {
-      requirePaid: true,
+      discordId,
+      planId,
+      requirePaid: !trustPaid,
+      trustPaid,
+    });
+  } else if (discordId && planId) {
+    result = await shoppexFulfillment.fulfillShoppexPurchase({
+      discordId,
+      planId,
+      invoiceId: null,
     });
   } else {
-    const discordId = String(payload.discord_id || payload.discordId || '').trim() || null;
-    if (discordId && planId) {
-      result = await shoppexFulfillment.fulfillShoppexPurchase({
-        discordId,
-        planId,
-        invoiceId: null,
-      });
-    } else {
-      sendJson(res, 400, { detail: 'invoice_id required for Shoppex auto-fulfillment' });
-      return;
-    }
+    sendJson(res, 400, { detail: 'invoice_id or discord_id+plan_id required' });
+    return;
   }
 
   if (!result.ok) {
