@@ -9,6 +9,7 @@ const COMMAND_HELP = {
     '`/faq` — Payment, renewal, scanner, and support answers.',
     '`/status view` — Check scanner operational status.',
     '`/mylicense` — View your license (buyers with active access).',
+    '`/claim` — Claim access after a Shoppex purchase (use your order ID from the receipt).',
     '`/redeembonus` — Redeem a **bonus days** promo code (no ticket needed).',
   ],
   staff: [
