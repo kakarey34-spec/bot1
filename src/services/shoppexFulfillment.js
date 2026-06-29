@@ -1,4 +1,5 @@
 const licenseService = require('./licenseService');
+const shoppexApi = require('./shoppexApi');
 const { upsertBuyerRegistry } = require('../utils/buyerRegistry');
 
 let clientRef = null;
@@ -19,6 +20,49 @@ async function getGuild() {
   const guildId = resolveGuildId();
   if (!guildId || !clientRef) return null;
   return clientRef.guilds.fetch(guildId).catch(() => null);
+}
+
+async function fulfillFromInvoice(invoiceId, { discordId = null, requirePaid = true } = {}) {
+  const normalizedInvoiceId = String(invoiceId || '').trim();
+  if (!normalizedInvoiceId) {
+    return { ok: false, reason: 'missing_invoice_id' };
+  }
+  if (!shoppexApi.apiConfigured()) {
+    return { ok: false, reason: 'shoppex_api_not_configured' };
+  }
+
+  const invoice = await shoppexApi.fetchInvoice(normalizedInvoiceId);
+  if (!invoice) {
+    return { ok: false, reason: 'invoice_not_found' };
+  }
+  if (requirePaid && !shoppexApi.invoiceIsPaid(invoice)) {
+    return { ok: false, reason: 'invoice_not_paid' };
+  }
+
+  const invoiceDiscordId = shoppexApi.extractDiscordId(invoice);
+  const resolvedDiscordId = String(discordId || invoiceDiscordId || '').trim();
+  const planId = shoppexApi.planIdFromInvoice(invoice);
+  const invoiceUniqid = String(invoice.uniqid || invoice.id || normalizedInvoiceId).trim();
+
+  if (discordId && invoiceDiscordId && discordId !== invoiceDiscordId) {
+    return {
+      ok: false,
+      reason: 'discord_id_mismatch',
+      detail: `Invoice is linked to ${invoiceDiscordId}`,
+    };
+  }
+  if (!resolvedDiscordId) {
+    return { ok: false, reason: 'missing_discord_id' };
+  }
+  if (!planId) {
+    return { ok: false, reason: 'missing_plan_id' };
+  }
+
+  return fulfillShoppexPurchase({
+    discordId: resolvedDiscordId,
+    planId,
+    invoiceId: invoiceUniqid,
+  });
 }
 
 async function fulfillShoppexPurchase({ discordId, planId, invoiceId }) {
@@ -91,6 +135,7 @@ async function revokeShoppexPurchase({ discordId, reason = 'Shoppex subscription
 
 module.exports = {
   setClient,
+  fulfillFromInvoice,
   fulfillShoppexPurchase,
   revokeShoppexPurchase,
 };

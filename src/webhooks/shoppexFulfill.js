@@ -80,29 +80,14 @@ async function handleShoppexFulfillRequest(req, res) {
     return;
   }
 
-  const discordId = String(payload.discord_id || payload.discordId || '').trim();
-  let planId = String(payload.plan_id || payload.planId || '').trim();
-  const invoiceId = String(payload.invoice_id || payload.invoiceId || '').trim() || null;
   const action = String(payload.action || 'fulfill').trim().toLowerCase();
-
-  if (action !== 'revoke' && !planId && invoiceId && shoppexApi.apiConfigured()) {
-    const invoice = await shoppexApi.fetchInvoice(invoiceId);
-    if (invoice) {
-      planId = shoppexApi.planIdFromInvoice(invoice) || planId;
-      if (!discordId) {
-        const invoiceDiscordId = shoppexApi.extractDiscordId(invoice);
-        if (invoiceDiscordId) {
-          payload.discord_id = invoiceDiscordId;
-        }
-      }
-    }
-  }
-
-  const resolvedDiscordId = String(payload.discord_id || payload.discordId || discordId).trim();
+  const invoiceId = String(payload.invoice_id || payload.invoiceId || '').trim() || null;
+  const discordId = String(payload.discord_id || payload.discordId || '').trim() || null;
+  const planId = String(payload.plan_id || payload.planId || '').trim() || null;
 
   if (action === 'revoke') {
     const result = await shoppexFulfillment.revokeShoppexPurchase({
-      discordId: resolvedDiscordId,
+      discordId,
       reason: String(payload.reason || 'Shoppex subscription ended'),
     });
     if (!result.ok) {
@@ -114,14 +99,26 @@ async function handleShoppexFulfillRequest(req, res) {
     return;
   }
 
-  const result = await shoppexFulfillment.fulfillShoppexPurchase({
-    discordId: resolvedDiscordId,
-    planId,
-    invoiceId,
-  });
+  let result;
+  if (invoiceId) {
+    result = await shoppexFulfillment.fulfillFromInvoice(invoiceId, {
+      discordId,
+      requirePaid: true,
+    });
+  } else if (discordId && planId) {
+    result = await shoppexFulfillment.fulfillShoppexPurchase({
+      discordId,
+      planId,
+      invoiceId: null,
+    });
+  } else {
+    sendJson(res, 400, { detail: 'invoice_id or discord_id+plan_id required' });
+    return;
+  }
 
   if (!result.ok) {
-    const status = result.reason === 'user_not_in_guild' ? 422 : 400;
+    const retryable = new Set(['invoice_not_paid', 'invoice_not_found', 'missing_discord_id', 'missing_plan_id']);
+    const status = result.reason === 'user_not_in_guild' ? 422 : retryable.has(result.reason) ? 409 : 400;
     sendJson(res, status, result);
     return;
   }

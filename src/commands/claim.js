@@ -24,47 +24,29 @@ module.exports = {
     }
 
     const orderId = interaction.options.getString('order_id', true).trim();
-    const invoice = await shoppexApi.fetchInvoice(orderId);
-    if (!invoice) {
-      return interaction.editReply({
-        content:
-          'Could not find that order. Copy the **invoice / order ID** from your Shoppex receipt (not your Discord ID) and try again.',
-      });
-    }
-
-    if (!shoppexApi.invoiceIsPaid(invoice)) {
-      return interaction.editReply({
-        content: 'That order is not marked as paid yet. Wait a minute after payment and try again.',
-      });
-    }
-
-    const invoiceDiscordId = shoppexApi.extractDiscordId(invoice);
-    const userId = interaction.user.id;
-
-    if (invoiceDiscordId && invoiceDiscordId !== userId) {
-      return interaction.editReply({
-        content:
-          `That order is linked to a different Discord user ID (**${invoiceDiscordId}**). ` +
-          'Use the same account you entered at checkout, or contact staff.',
-      });
-    }
-
-    const planId = shoppexApi.planIdFromInvoice(invoice);
-    if (!planId) {
-      return interaction.editReply({
-        content:
-          'Payment found, but the plan could not be matched. Contact staff with your order ID and receipt.',
-      });
-    }
-
-    const invoiceUniqid = String(invoice.uniqid || invoice.id || orderId).trim();
-    const result = await shoppexFulfillment.fulfillShoppexPurchase({
-      discordId: userId,
-      planId,
-      invoiceId: invoiceUniqid,
+    const result = await shoppexFulfillment.fulfillFromInvoice(orderId, {
+      discordId: interaction.user.id,
+      requirePaid: true,
     });
 
     if (!result.ok) {
+      if (result.reason === 'invoice_not_found') {
+        return interaction.editReply({
+          content:
+            'Could not find that order. Copy the **invoice / order ID** from your Shoppex receipt (not your Discord ID) and try again.',
+        });
+      }
+      if (result.reason === 'invoice_not_paid') {
+        return interaction.editReply({
+          content: 'That order is not marked as paid yet. Wait a minute after payment and try again.',
+        });
+      }
+      if (result.reason === 'discord_id_mismatch') {
+        return interaction.editReply({
+          content:
+            `That order is linked to a different Discord user ID. Use the same account you entered at checkout, or contact staff.`,
+        });
+      }
       if (result.reason === 'user_not_in_guild') {
         return interaction.editReply({
           content:
@@ -81,7 +63,7 @@ module.exports = {
       description: [
         'Your Shoppex payment was verified and your **Access** role + license are now active.',
         '',
-        `**Plan:** ${planId}`,
+        `**Plan:** ${result.planId}`,
         result.expiresAtDiscord ? `**Valid until:** ${result.expiresAtDiscord}` : '',
         '',
         'Open the dashboard and click **Verify Access** with Discord, then use `/scanner guide` for the download.',
