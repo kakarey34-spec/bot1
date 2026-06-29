@@ -74,7 +74,7 @@ function extractDiscordId(source) {
     source.customerDiscordId,
   ];
 
-  for (const key of ['custom_fields', 'customFields', 'checkout_fields', 'checkoutFields']) {
+  for (const key of ['custom_fields', 'customFields', 'checkout_fields', 'checkoutFields', 'field_values', 'fieldValues']) {
     candidates.push(...collectCustomFieldValues(source[key]));
   }
 

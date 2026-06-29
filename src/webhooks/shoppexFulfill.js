@@ -87,6 +87,10 @@ async function handleShoppexFulfillRequest(req, res) {
   const trustPaid = payload.trust_paid === true || payload.trustPaid === true;
   const customFields = payload.custom_fields || payload.customFields || null;
 
+  console.log(
+    `[shoppex-fulfill] action=${action} discord=${discordId || 'n/a'} plan=${planId || 'n/a'} invoice=${invoiceId || 'n/a'} trustPaid=${trustPaid}`,
+  );
+
   if (action === 'revoke') {
     const result = await shoppexFulfillment.revokeShoppexPurchase({
       discordId,
@@ -102,7 +106,13 @@ async function handleShoppexFulfillRequest(req, res) {
   }
 
   let result;
-  if (invoiceId) {
+  if ((action === 'purchase' || trustPaid) && discordId && planId) {
+    result = await shoppexFulfillment.registerShoppexPurchase({
+      discordId,
+      planId,
+      invoiceId,
+    });
+  } else if (invoiceId) {
     result = await shoppexFulfillment.fulfillFromInvoice(invoiceId, {
       discordId,
       planId,
@@ -111,7 +121,7 @@ async function handleShoppexFulfillRequest(req, res) {
       customFields,
     });
   } else if (discordId && planId) {
-    result = await shoppexFulfillment.fulfillShoppexPurchase({
+    result = await shoppexFulfillment.registerShoppexPurchase({
       discordId,
       planId,
       invoiceId: null,
@@ -132,13 +142,15 @@ async function handleShoppexFulfillRequest(req, res) {
       'shoppex_api_not_configured',
       'user_not_in_guild',
     ]);
-    const status = result.reason === 'not_configured' || result.reason === 'guild_not_found'
-      ? 503
-      : result.reason === 'user_not_in_guild'
-        ? 422
-        : retryable.has(result.reason)
-          ? 409
-          : 400;
+    const status =
+      result.reason === 'not_configured' || result.reason === 'guild_not_found'
+        ? 503
+        : result.reason === 'user_not_in_guild'
+          ? 422
+          : retryable.has(result.reason)
+            ? 409
+            : 400;
+    console.warn(`[shoppex-fulfill] failed: ${result.reason}`, result.detail || '');
     sendJson(res, status, result);
     return;
   }
