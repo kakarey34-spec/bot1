@@ -1,5 +1,6 @@
 const licenseService = require('./licenseService');
 const shoppexApi = require('./shoppexApi');
+const store = require('../config/store');
 const { upsertBuyerRegistry } = require('../utils/buyerRegistry');
 
 let clientRef = null;
@@ -22,6 +23,42 @@ async function getGuild() {
   return clientRef.guilds.fetch(guildId).catch(() => null);
 }
 
+function resolveAccessRoleId(guildId) {
+  const fromEnv = (process.env.DISCORD_ACCESS_ROLE_ID || '').trim();
+  if (fromEnv) return fromEnv;
+  const config = store.getGuild(guildId);
+  return (config.roles.purchaserRoleId || '').trim() || null;
+}
+
+async function grantAccessRole(guild, userId, reason = 'Shoppex purchase verified') {
+  const roleId = resolveAccessRoleId(guild.id);
+  if (!roleId) {
+    return { ok: false, reason: 'access_role_not_configured' };
+  }
+
+  const member = await guild.members.fetch(userId).catch(() => null);
+  if (!member) {
+    return {
+      ok: false,
+      reason: 'user_not_in_guild',
+      detail: 'Join the Virello Discord server before checkout.',
+    };
+  }
+
+  if (member.roles.cache.has(roleId)) {
+    return { ok: true, roleId, alreadyHadRole: true };
+  }
+
+  try {
+    await member.roles.add(roleId, reason);
+    console.log(`[shoppex] Access role ${roleId} granted to ${userId}`);
+    return { ok: true, roleId };
+  } catch (error) {
+    console.error(`[shoppex] Access role grant failed for ${userId}:`, error);
+    return { ok: false, reason: 'role_add_failed', detail: String(error.message || error) };
+  }
+}
+
 async function fulfillFromInvoice(invoiceId, { discordId = null, requirePaid = true } = {}) {
   const normalizedInvoiceId = String(invoiceId || '').trim();
   if (!normalizedInvoiceId) {
@@ -40,7 +77,8 @@ async function fulfillFromInvoice(invoiceId, { discordId = null, requirePaid = t
   }
 
   const invoiceDiscordId = shoppexApi.extractDiscordId(invoice);
-  const resolvedDiscordId = String(discordId || invoiceDiscordId || '').trim();
+  // Checkout custom field is authoritative — use it before any caller-provided Discord ID.
+  const resolvedDiscordId = String(invoiceDiscordId || discordId || '').trim();
   const planId = shoppexApi.planIdFromInvoice(invoice);
   const invoiceUniqid = String(invoice.uniqid || invoice.id || normalizedInvoiceId).trim();
 
@@ -92,6 +130,11 @@ async function fulfillShoppexPurchase({ discordId, planId, invoiceId }) {
     };
   }
 
+  const roleResult = await grantAccessRole(guild, normalizedId, 'Shoppex purchase verified');
+  if (!roleResult.ok) {
+    return roleResult;
+  }
+
   const result = await licenseService.grantLicenseToUser(guild, normalizedId, planId, 'shoppex', {
     notify: true,
     paymentSource: 'shoppex',
@@ -111,6 +154,7 @@ async function fulfillShoppexPurchase({ discordId, planId, invoiceId }) {
     planId,
     discordId: normalizedId,
     invoiceId: invoiceId || null,
+    accessRoleId: roleResult.roleId || null,
     expiresAt: result.license.expiresAt,
     expiresAtDiscord: `<t:${expiresUnix}:F>`,
   };
@@ -137,5 +181,6 @@ module.exports = {
   setClient,
   fulfillFromInvoice,
   fulfillShoppexPurchase,
+  grantAccessRole,
   revokeShoppexPurchase,
 };

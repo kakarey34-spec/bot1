@@ -38,14 +38,22 @@ function collectCustomFieldValues(customFields) {
   if (Array.isArray(customFields)) {
     for (const field of customFields) {
       if (!field || typeof field !== 'object') continue;
-      const name = String(field.name || field.key || '').toLowerCase();
-      if (name.includes('discord')) values.push(field.value);
+      const name = String(field.name || field.key || field.label || '').toLowerCase();
+      const value = field.value ?? field.text ?? field.answer;
+      if (name.includes('discord') || name.includes('user id') || name.includes('userid')) {
+        values.push(value);
+      }
+      if (normalizeDiscordId(value)) values.push(value);
     }
     return values;
   }
   if (typeof customFields === 'object') {
     for (const [key, value] of Object.entries(customFields)) {
-      if (String(key).toLowerCase().includes('discord')) values.push(value);
+      const keyText = String(key).toLowerCase();
+      if (keyText.includes('discord') || keyText.includes('user_id') || keyText.includes('userid')) {
+        values.push(value);
+      }
+      if (normalizeDiscordId(value)) values.push(value);
     }
     for (const key of ['discord_user_id', 'discord_id', 'Discord user ID', 'Discord ID']) {
       if (customFields[key]) values.push(customFields[key]);
