@@ -82,6 +82,21 @@ async function handleShoppexFulfillRequest(req, res) {
   const discordId = String(payload.discord_id || payload.discordId || '').trim();
   const planId = String(payload.plan_id || payload.planId || '').trim();
   const invoiceId = String(payload.invoice_id || payload.invoiceId || '').trim() || null;
+  const action = String(payload.action || 'fulfill').trim().toLowerCase();
+
+  if (action === 'revoke') {
+    const result = await shoppexFulfillment.revokeShoppexPurchase({
+      discordId,
+      reason: String(payload.reason || 'Shoppex subscription ended'),
+    });
+    if (!result.ok) {
+      const status = result.reason === 'guild_not_found' ? 503 : 400;
+      sendJson(res, status, result);
+      return;
+    }
+    sendJson(res, 200, result);
+    return;
+  }
 
   const result = await shoppexFulfillment.fulfillShoppexPurchase({
     discordId,

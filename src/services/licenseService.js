@@ -31,6 +31,8 @@ function grantLicense(guildId, userId, planId, meta = {}) {
     expiresAt,
     approvedBy: meta.approvedBy || null,
     ticketChannelId: meta.ticketChannelId || null,
+    paymentSource: meta.paymentSource || existing?.paymentSource || null,
+    shoppexInvoiceId: meta.shoppexInvoiceId || existing?.shoppexInvoiceId || null,
     expired: false,
     warningsSent: existing?.warningsSent || [],
     registryMessageId: existing?.registryMessageId || null,
@@ -202,12 +204,14 @@ async function grantLicenseToUser(
   userId,
   planId,
   staffId,
-  { notify = true, promo = null } = {}
+  { notify = true, promo = null, paymentSource = null, shoppexInvoiceId = null } = {}
 ) {
   const result = grantLicense(guild.id, userId, planId, {
     approvedBy: staffId,
     approvedAt: Date.now(),
     grantedByStaff: true,
+    paymentSource,
+    shoppexInvoiceId,
   });
   if (result.error) return result;
 
